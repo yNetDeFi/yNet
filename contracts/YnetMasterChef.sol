@@ -26,6 +26,7 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
     struct UserInfo {
         uint256 amount;         // How many LP tokens the user has provided.
         uint256 rewardDebt;     // Reward debt. See explanation below.
+        uint256 rewardLockedUp; // Reward locked up.
         //
         // We do some fancy math here. Basically, any point in time, the amount of Ynets
         // entitled to a user but is pending to be distributed is:
@@ -56,8 +57,11 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
     address public feeAddress;
     // Ynet tokens created per block.
     uint256 public ynetPerBlock;
-    // Bonus muliplier for early ynet makers.
-    // uint256 public constant BONUS_MULTIPLIER = 1;
+
+    // Harvest time (how many block);
+    uint256 public harvestTime; 
+	// Start Block Harvest
+    uint256 public startBlockHarvest;
 
     // Initial emission rate: 1 Ynet per block.
     uint256 public constant INITIAL_EMISSION_RATE = 1 ether;
@@ -78,19 +82,26 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
     uint256 public totalAllocPoint = 0;
     // The block number when Ynet mining starts.
     uint256 public startBlock;
+    // Total locked up rewards
+    uint256 public totalLockedUpRewards;
 
     // Ynet referral contract address.
     IYnetReferral public ynetReferral;
     // Referral commission rate in basis points.
-    uint16 public referralCommissionRate = 200;
+    uint16 public referralCommissionRate = 300;
     // Max referral commission rate: 20%.
     uint16 public constant MAXIMUM_REFERRAL_COMMISSION_RATE = 2000;
+    // Initial harvest time: 1 day.
+    uint256 public constant INITIAL_HARVEST_TIME = 300;
 
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmissionRateUpdated(address indexed caller, uint256 previousAmount, uint256 newAmount);
     event ReferralCommissionPaid(address indexed user, address indexed referrer, uint256 commissionAmount);
+    event UpdateHarvestTime(address indexed caller, uint256 _oldHarvestTime, uint256 _newHarvestTime);
+	event UpdateStartBlockHarvest(address indexed caller, uint256 _oldStartBlockHarvest, uint256 _newStartBlockHarvest);
+	event RewardLockedUp(address indexed user, uint256 indexed pid, uint256 amountLockedUp);
 
     constructor(
         YnetToken _ynet,
@@ -102,6 +113,8 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         devAddress = msg.sender;
         feeAddress = msg.sender;
         ynetPerBlock = INITIAL_EMISSION_RATE;
+        harvestTime = INITIAL_HARVEST_TIME;
+        startBlockHarvest = _startBlock;
     }
 
     function poolLength() external view returns (uint256) {
@@ -153,7 +166,8 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
             uint256 ynetReward = multiplier.mul(ynetPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
             accYnetPerShare = accYnetPerShare.add(ynetReward.mul(1e12).div(lpSupply));
         }
-        return user.amount.mul(accYnetPerShare).div(1e12).sub(user.rewardDebt);
+        uint pending = user.amount.mul(accYnetPerShare).div(1e12).sub(user.rewardDebt);
+        return pending.add(user.rewardLockedUp);
     }
 
     // Update reward variables for all pools. Be careful of gas spending!
@@ -191,17 +205,16 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         if (_amount > 0 && address(ynetReferral) != address(0) && _referrer != address(0) && _referrer != msg.sender) {
             ynetReferral.recordReferral(msg.sender, _referrer);
         }
-        if (user.amount > 0) {
-            uint256 pending = user.amount.mul(pool.accYnetPerShare).div(1e12).sub(user.rewardDebt);
-            if (pending > 0) {
-                safeYnetTransfer(msg.sender, pending);
-                payReferralCommission(msg.sender, pending);
-            }
-        }
+        payOrLockupPendingYnet(_pid);
+        
         if (_amount > 0) {
             pool.lpToken.safeTransferFrom(address(msg.sender), address(this), _amount);
+            // if (address(pool.lpToken) == address(ynet)) {
+            //     uint256 transferTax = _amount.mul(2).div(100);
+            //     _amount = _amount.sub(transferTax);
+            // }
             if (address(pool.lpToken) == address(ynet)) {
-                uint256 transferTax = _amount.mul(2).div(100);
+                uint256 transferTax = _amount.mul(ynet.transferTaxRate()).div(10000);
                 _amount = _amount.sub(transferTax);
             }
             if (pool.depositFeeBP > 0) {
@@ -222,11 +235,13 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         UserInfo storage user = userInfo[_pid][msg.sender];
         require(user.amount >= _amount, "withdraw: not good");
         updatePool(_pid);
-        uint256 pending = user.amount.mul(pool.accYnetPerShare).div(1e12).sub(user.rewardDebt);
+        payOrLockupPendingYnet(_pid);
+
+        /* uint256 pending = user.amount.mul(pool.accYnetPerShare).div(1e12).sub(user.rewardDebt);
         if (pending > 0) {
             safeYnetTransfer(msg.sender, pending);
             payReferralCommission(msg.sender, pending);
-        }
+        } */
         if (_amount > 0) {
             user.amount = user.amount.sub(_amount);
             pool.lpToken.safeTransfer(address(msg.sender), _amount);
@@ -242,8 +257,34 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         uint256 amount = user.amount;
         user.amount = 0;
         user.rewardDebt = 0;
+        user.rewardLockedUp = 0;
         pool.lpToken.safeTransfer(address(msg.sender), amount);
         emit EmergencyWithdraw(msg.sender, _pid, amount);
+    }
+
+        // Pay or lockup pending YNETs.
+    function payOrLockupPendingYnet(uint256 _pid) internal {
+        PoolInfo storage pool = poolInfo[_pid];
+        UserInfo storage user = userInfo[_pid][msg.sender];
+
+        uint256 pending = user.amount.mul(pool.accYnetPerShare).div(1e12).sub(user.rewardDebt);
+		uint256 totalRewards = pending.add(user.rewardLockedUp);
+        uint256 lastBlockHarvest = startBlockHarvest.add(harvestTime);
+        if (block.number >= startBlockHarvest && block.number <= lastBlockHarvest) {
+            if (pending > 0 || user.rewardLockedUp > 0) {        
+                // reset lockup
+                totalLockedUpRewards = totalLockedUpRewards.sub(user.rewardLockedUp);
+                user.rewardLockedUp = 0;
+				
+                // send rewards
+                safeYnetTransfer(msg.sender, totalRewards);
+                payReferralCommission(msg.sender, totalRewards);
+            }
+        } else if (pending > 0) {
+            user.rewardLockedUp = user.rewardLockedUp.add(pending);
+            totalLockedUpRewards = totalLockedUpRewards.add(pending);
+            emit RewardLockedUp(msg.sender, _pid, pending);
+        }
     }
 
     // Safe ynet transfer function, just in case if rounding error causes pool to not have enough Ynets.
@@ -294,6 +335,18 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         uint256 previousEmissionRate = ynetPerBlock;
         ynetPerBlock = newEmissionRate;
         emit EmissionRateUpdated(msg.sender, previousEmissionRate, newEmissionRate);
+    }
+    
+    // updateHarvestTime, how many blocks
+    function updateHarvestTime(uint256 _harvestTime) public onlyOwner {
+        harvestTime = _harvestTime;
+		emit UpdateHarvestTime(msg.sender, harvestTime, _harvestTime);
+    }	
+
+    // updateStartBlockHarvest
+    function updateStartBlockHarvest(uint256 _startBlockHarvest) public onlyOwner {
+        startBlockHarvest = _startBlockHarvest;
+		emit UpdateStartBlockHarvest(msg.sender, startBlockHarvest, _startBlockHarvest);
     }
 
     // Update the ynet referral contract address by the owner

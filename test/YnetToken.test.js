@@ -8,8 +8,8 @@ contract('YnetToken', function ([alice, bob, carol, minter]) {
     })
 
     it('should have correct setting', async () => {
-        assert.equal(await this.YnetToken.name().valueOf(), 'Ynet')
-        assert.equal(await this.YnetToken.symbol().valueOf(), 'Ynet')
+        assert.equal(await this.YnetToken.name().valueOf(), 'yNet')
+        assert.equal(await this.YnetToken.symbol().valueOf(), 'yNet')
         assert.equal(await this.YnetToken.decimals().valueOf(), '18')
     })
     
@@ -45,8 +45,8 @@ contract('YnetToken', function ([alice, bob, carol, minter]) {
         await this.YnetToken.transfer(bob, '100', { from: carol })
         const bobBal = await this.YnetToken.balanceOf(bob)
         const carolBal = await this.YnetToken.balanceOf(carol)
-        assert.equal(bobBal.valueOf().toString(), '98')
-        assert.equal(carolBal.valueOf().toString(), '96')
+        assert.equal(bobBal.valueOf().toString(), '93')
+        assert.equal(carolBal.valueOf().toString(), '85')
     })
 
     it('should fail if you try to do bad transfers', async () => {
