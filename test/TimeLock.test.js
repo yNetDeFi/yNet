@@ -196,52 +196,5 @@ contract('Timelock', ([alice, bob, carol, dev, eliah, minter, feeAddress, admin]
             assert.equal((await this.master.poolInfo(0)).depositFeeBP.valueOf(), '1000')
         })
 
-        it('should allow setup of farming', async () => {
-            this.master = await YnetMasterChef.new(this.YnetToken.address, 200, { from: alice })
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-
-            await this.master.add('100', this.lp1.address, 1000, true, { from: alice })
-            await this.master.add('100', this.lp2.address, 1000, true, { from: alice })
-
-            await this.master.setDevAddress(dev, { from: alice })
-            await this.master.setFeeAddress(dev, { from: alice })
-
-            await this.master.transferOwnership(this.timelock.address, { from: alice })
-
-            await this.lp1.approve(this.master.address, '1000', { from: alice })
-            await this.lp1.approve(this.master.address, '1000', { from: bob })
-            await this.lp2.approve(this.master.address, '1000', { from: carol })
-            await this.lp2.approve(this.master.address, '1000', { from: dev })
-
-            await time.advanceBlockTo(249)
-
-            await this.master.deposit(0, 100, constants.ZERO_ADDRESS, { from: bob })    // 250
-            await this.master.deposit(1, 100, constants.ZERO_ADDRESS, { from: carol })  // 251
-
-            await time.advanceBlockTo(270);
-
-            const data = '0x0'
-            const signature = "massUpdatePools()"
-            const eta = await time.latest() / 1 + 25000
-
-
-            await this.timelock.queueTransaction(
-                this.master.address, 0, signature, data, eta, { from: admin })  // 271
-
-            await time.increase(25000);
-
-            await time.advanceBlockTo(299)
-
-            await this.timelock.executeTransaction(
-                this.master.address, 0, signature, data, eta, { from: admin })  // 300
-
-            await this.master.withdraw(0, 90, { from: bob })    // 301
-            await this.master.withdraw(1, 90, { from: carol })   // 302
-
-            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, '24.99');
-            assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, '24.99');
-
-
-        })
     })
 })

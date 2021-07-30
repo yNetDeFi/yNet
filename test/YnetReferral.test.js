@@ -138,8 +138,53 @@ contract('YNetReferral', ([alice, bob, carol, referrer, operator, owner, minter,
 
         console.log("Referral Reward of dev after withdraw by bob: ", (await this.YnetToken.balanceOf(dev)).toString() / 1000000000000000000)
         
-        assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, 0.5933333333333334)
-        assert.equal((await this.YnetToken.balanceOf(dev)).toString() / 1000000000000000000, 0.4216666666666667)
+        assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, 0.89)
+        assert.equal((await this.YnetToken.balanceOf(dev)).toString() / 1000000000000000000, 0.6325)
         
+    })
+
+    it('should check referral reward percentage', async () => {
+        let currBlockCount = (await time.latestBlock()).toNumber();
+
+        this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
+        await this.YnetToken.transferOwnership(this.master.address, { from: alice })
+
+        await this.master.setYnetReferral(this.YNetReferral.address, { from: alice })
+        //MasterChef must be added as operator for adding the referal information.
+        await this.YNetReferral.updateOperator(this.master.address, true, { from: owner });
+        await this.master.setFeeAddress(feeAddress, { from: alice })
+        await this.master.setDevAddress(devAddress, { from: alice })
+
+        await this.master.add('100', this.lp1.address, 1000, true)
+        await this.lp1.approve(this.master.address, '1000', { from: alice })
+        await this.lp1.approve(this.master.address, '1000', { from: bob })
+
+        await time.advanceBlockTo(currBlockCount + 100);
+
+        await this.master.deposit(0, '100', carol, { from: alice })  // 115
+        assert.equal((await this.lp1.balanceOf(alice)).valueOf(), '900')
+
+        await time.advanceBlockTo(currBlockCount + 200);
+
+        await this.master.deposit(0, '100', dev, { from: bob })   // 215
+        assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '900')
+
+        await time.advanceBlockTo(currBlockCount + 400);     // harvest period 300 blocks 
+        
+        await this.master.updateStartBlockHarvest(currBlockCount + 500, { from : alice });
+
+        await time.advanceBlockTo(currBlockCount + 500);
+
+        await this.master.withdraw(0, 90, { from: alice })                    // 515
+
+        assert.equal((await this.YnetToken.balanceOf(alice)).toString() / 1000000000000000000, '231.25')  // bob's reward
+        assert.equal((await this.lp1.balanceOf(alice)).toString(), '990')
+
+        await this.master.withdraw(0, 90, { from: bob }) 
+        assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, '139.675')  // bob's reward
+        assert.equal((await this.lp1.balanceOf(bob)).toString(), '990')
+
+        assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, 7.5)
+        assert.equal((await this.YnetToken.balanceOf(dev)).toString() / 1000000000000000000, 4.53)
     })
 });

@@ -56,7 +56,7 @@ contract('YnetMasterChef', ([alice, bob, carol, dev, eliah, minter, feeAddress, 
     // Reduce from 1 Ynet/block to 0.97 Ynet/block after 9600 blocks ie 8 hours.
     /**
     it('should reduce the EMISSION RATE by 3% after 9600 blocks  ', async () => {
-        this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: alice })
+        this.master = await MasterChefHarvest.new(this.YnetToken.address, 100, { from: alice })
         await this.YnetToken.transferOwnership(this.master.address, { from: alice })
      
         await time.advanceBlockTo(99);
@@ -222,19 +222,19 @@ contract('YnetMasterChef', ([alice, bob, carol, dev, eliah, minter, feeAddress, 
 
             await this.master.deposit(0, '1000', constants.ZERO_ADDRESS, { from: bob })
             assert.equal((await this.YnetToken.balanceOf(bob)).valueOf(), '0');
-            assert.equal((await this.YnetToken.balanceOf(this.master.address)).toString(), '882');
+            assert.equal((await this.YnetToken.balanceOf(this.master.address)).valueOf(), '833');
 
             await this.master.deposit(0, '1000', constants.ZERO_ADDRESS, { from: carol })
             assert.equal((await this.YnetToken.balanceOf(carol)).valueOf(), '0');
 
-            // calculation for user.amont in pool.
+            // calculation for user.amount in pool.
             //1000 -2% (transfer tax on every transaction of YNet token) 0f 1000 = 980
             // 980 - 10%(pool deposit fee) of 980 = 882 
             await expectRevert(
-                this.master.withdraw(0, '883', { from: bob }),
+                this.master.withdraw(0, '834', { from: bob }),
                 'withdraw: not good')
 
-            await this.master.withdraw(0, '882', { from: bob });
+            await this.master.withdraw(0, '833', { from: bob });
 
             assert(true, "User is unable to wihdraw the higher token amount then which is been recived by contract during his/her deposit .Not prone to attack happened!! ")
         })
@@ -382,127 +382,111 @@ contract('YnetMasterChef', ([alice, bob, carol, dev, eliah, minter, feeAddress, 
 
         })
 
-        it('should properly distribute tokens', async () => {
+        it('should not distribute rewards during harvest lockup', async () => {
+            let currBlockCount = (await time.latestBlock()).toNumber();
 
-            this.master = await YnetMasterChef.new(this.YnetToken.address, 600, { from: alice })
+            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
             await this.YnetToken.transferOwnership(this.master.address, { from: alice })
 
-            await this.master.setFeeAddress(feeAddress, { from: alice })
-            await this.master.setDevAddress(devAddress, { from: alice })
-
             await this.master.add('100', this.lp1.address, 1000, true)
-            await this.lp1.approve(this.master.address, '1000', { from: alice })
             await this.lp1.approve(this.master.address, '1000', { from: bob })
-            await this.lp1.approve(this.master.address, '1000', { from: carol })
-            await this.lp1.approve(this.master.address, '1000', { from: dev })
 
-            await this.master.add('100', this.lp2.address, 500, true)
-            await this.lp2.approve(this.master.address, '1000', { from: eliah })
+            await time.advanceBlockTo(currBlockCount + 100);
 
-            await time.advanceBlockTo('599')
+            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: bob })
+            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '900')
 
-            await this.master.deposit(0, 100, constants.ZERO_ADDRESS, { from: alice }) //600
-            await this.master.deposit(0, 100, constants.ZERO_ADDRESS, { from: bob })   //601
-            await this.master.deposit(0, 100, constants.ZERO_ADDRESS, { from: carol }) //602
-            await this.master.deposit(0, 100, constants.ZERO_ADDRESS, { from: dev }) //603
-            await this.master.deposit(1, 100, constants.ZERO_ADDRESS, { from: eliah }) //604
-
-            await time.advanceBlockTo('649')
-
-            await this.master.withdraw(0, 90, { from: alice })           //650
-            assert.equal((await this.YnetToken.balanceOf(alice)).toString() / 1000000000000000000, 6.655833333333333);
-
-            await this.master.withdraw(0, 90, { from: bob })             //651
-            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, 6.329166666666667);
-
-            await time.advanceBlockTo('653')
-
-            await this.master.withdraw(1, 90, { from: eliah })           //554
-            assert.equal((await this.YnetToken.balanceOf(eliah)).toString() / 1000000000000000000, 24.5);
-
-            await expectRevert(
-                this.master.withdraw(0, 5, { from: bob }),
-                "withdraw: not good"
-            )
+            await time.advanceBlockTo(currBlockCount + 400);     // harvest period 300 blocks 
+            
+            await this.master.withdraw(0, 90, { from: bob })
+            
+            assert.equal((await this.YnetToken.balanceOf(bob)).toString(), '0')  // bob's reward
+            assert.equal((await this.lp1.balanceOf(bob)).toString(), '990')
         })
 
-        it('should properly distribute at different deposit amounts', async () => {
-            this.master = await YnetMasterChef.new(this.YnetToken.address, 700, { from: alice })
+        it('should distribute rewards during harvest period', async () => {
+            let currBlockCount = (await time.latestBlock()).toNumber();
+
+            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
             await this.YnetToken.transferOwnership(this.master.address, { from: alice })
 
-            await this.master.setFeeAddress(feeAddress, { from: alice })
-            await this.master.setDevAddress(devAddress, { from: alice })
-
             await this.master.add('100', this.lp1.address, 1000, true)
-            await this.lp1.approve(this.master.address, '1000', { from: alice })
             await this.lp1.approve(this.master.address, '1000', { from: bob })
             await this.lp1.approve(this.master.address, '1000', { from: carol })
-            await this.lp1.approve(this.master.address, '1000', { from: dev })
 
-            await this.master.add('100', this.lp2.address, 500, true)
-            await this.lp2.approve(this.master.address, '1000', { from: eliah })
+            await time.advanceBlockTo(currBlockCount + 100);
 
+            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: bob })  // 115
+            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '900')
+
+            await time.advanceBlockTo(currBlockCount + 200);
+
+            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: carol })   // 215
+            assert.equal((await this.lp1.balanceOf(carol)).valueOf(), '900')
+
+            await time.advanceBlockTo(currBlockCount + 400);     // harvest period 300 blocks 
             
-            await time.advanceBlockTo('699')
-            await this.master.deposit(0, 10, constants.ZERO_ADDRESS, { from: alice })  //700
-            await this.master.deposit(0, 20, constants.ZERO_ADDRESS, { from: bob })    //701
-            await this.master.deposit(0, 30, constants.ZERO_ADDRESS, { from: carol })  //702
-            await this.master.deposit(0, 40, constants.ZERO_ADDRESS, { from: dev })    //703
-            await this.master.deposit(1, 10, constants.ZERO_ADDRESS, { from: eliah })  //704
+            await this.master.updateStartBlockHarvest(currBlockCount + 500, { from : alice });
 
-            await time.advanceBlockTo('749')
+            await time.advanceBlockTo(currBlockCount + 500);
 
-            await this.master.withdraw(0, 9, { from: alice })            //750
-            assert.equal((await this.YnetToken.balanceOf(alice)).toString() / 1000000000000000000, 3.038);
+            await this.master.withdraw(0, 90, { from: bob })                    // 515
 
-            await this.master.withdraw(0, 18, { from: bob })              //751  
-            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, 5.204888888888889);
+            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, '231.25')  // bob's reward (250)
+            assert.equal((await this.lp1.balanceOf(bob)).toString(), '990')
 
-            await this.master.withdraw(0, 27, { from: carol })            //752
-            
-            assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, 7.527333333333333);
-
-            await time.advanceBlockTo('753')
-
-            await this.master.withdraw(1, 9, { from: eliah })            //754
-            
-            assert.equal((await this.YnetToken.balanceOf(eliah)).toString() / 1000000000000000000, 24.5);
-            
+            await this.master.withdraw(0, 90, { from: carol }) 
+            assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, '139.675')  // carol's reward (151)
+            assert.equal((await this.lp1.balanceOf(carol)).toString(), '990')
         })
 
-        it('should distribute properly when multiple deposit and partial withdraw', async () => {
-            this.master = await YnetMasterChef.new(this.YnetToken.address, 800, { from: alice })
+        it('withdraw different amounts early and collect rewards during harvest period', async () => {
+            let currBlockCount = (await time.latestBlock()).toNumber();
+
+            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
             await this.YnetToken.transferOwnership(this.master.address, { from: alice })
 
             await this.master.add('100', this.lp1.address, 1000, true)
-
             await this.lp1.approve(this.master.address, '1000', { from: bob })
             await this.lp1.approve(this.master.address, '1000', { from: carol })
 
-            await this.master.add('100', this.lp2.address, 1000, true)
+            await time.advanceBlockTo(currBlockCount + 100);
 
-            await time.advanceBlockTo('799')
+            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: bob })  // 115
+            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '900')
 
-            await this.master.deposit(0, 100, constants.ZERO_ADDRESS, { from: bob }) // 800 
+            await time.advanceBlockTo(currBlockCount + 150);
 
-            await this.master.deposit(0, 100, constants.ZERO_ADDRESS, { from: carol }) // 801
+            await this.master.withdraw(0, 45, { from: bob })   // 165
+            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, '46.25')
+            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '945')
 
-            await time.advanceBlockTo('850')
-            await this.master.deposit(0, 100, constants.ZERO_ADDRESS, { from: bob }) // 851
+            await time.advanceBlockTo(currBlockCount + 200);
 
-            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, 12.74)
+            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: carol })   // 215
+            assert.equal((await this.lp1.balanceOf(carol)).valueOf(), '900')
 
-            await time.advanceBlockTo('900')
-            await this.master.withdraw(0, 90, { from: bob }) // 901
+            await time.advanceBlockTo(currBlockCount + 500);
 
-            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, 29.07333333333333);
+            await this.master.withdraw(0, 45, { from: bob })                    // 515
+            await this.master.withdraw(0, 90, { from: carol })                  // 516
 
-            await this.master.withdraw(0, 90, { from: carol }) // 902
-            assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, 20.66166666666667)
+            await this.master.updateStartBlockHarvest(currBlockCount + 600, { from : alice });
+
+            await time.advanceBlockTo(currBlockCount + 600);
+
+            await this.master.deposit(0, '0', constants.ZERO_ADDRESS, { from: bob })
+            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, 185) // bob's reward (200)
+
+            await this.master.deposit(0, '0', constants.ZERO_ADDRESS, { from: carol })
+            assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, 185.925) // bob's reward (200)
+
         })
 
         it('check if rewards are generated before start block', async () => {
-            this.master = await YnetMasterChef.new(this.YnetToken.address, 600, { from: alice })
+            let currBlockCount = (await time.latestBlock()).toNumber();
+
+            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount +  600, { from: alice })
             await this.YnetToken.transferOwnership(this.master.address, { from: alice })
             await this.master.setDevAddress(devAddress, { from: alice })
 
@@ -510,10 +494,10 @@ contract('YnetMasterChef', ([alice, bob, carol, dev, eliah, minter, feeAddress, 
             await this.lp1.approve(this.master.address, '1000', { from: bob })
             await this.lp1.approve(this.master.address, '1000', { from: carol })
 
-            await time.advanceBlockTo('499')
+            await time.advanceBlockTo(currBlockCount + 499)
             await this.master.deposit(0, 1000, constants.ZERO_ADDRESS, { from: bob }) //600
 
-            await time.advanceBlockTo('599')
+            await time.advanceBlockTo(currBlockCount + 599)
             await this.master.withdraw(0, 1000, { from: bob }) //700
 
             assert.equal((await this.YnetToken.balanceOf(bob)).toString(), 0)
@@ -521,7 +505,9 @@ contract('YnetMasterChef', ([alice, bob, carol, dev, eliah, minter, feeAddress, 
         })
 
         it('should check devAddress percentage', async () => {
-            this.master = await YnetMasterChef.new(this.YnetToken.address, 600, { from: alice })
+            let currBlockCount = (await time.latestBlock()).toNumber();
+
+            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 600, { from: alice })
             await this.YnetToken.transferOwnership(this.master.address, { from: alice })
             await this.master.setDevAddress(devAddress, { from: alice })
 
@@ -529,16 +515,16 @@ contract('YnetMasterChef', ([alice, bob, carol, dev, eliah, minter, feeAddress, 
             await this.lp1.approve(this.master.address, '1000', { from: bob })
             await this.lp1.approve(this.master.address, '1000', { from: carol })
 
-            await time.advanceBlockTo('599')
+            await time.advanceBlockTo(currBlockCount + 599)
             await this.master.deposit(0, 1000, constants.ZERO_ADDRESS, { from: bob }) //600
 
-            await time.advanceBlockTo('649')
+            await time.advanceBlockTo(currBlockCount + 649)
             await this.master.deposit(0, 1000, constants.ZERO_ADDRESS, { from: carol }) //600
 
-            await time.advanceBlockTo('699')
+            await time.advanceBlockTo(currBlockCount + 699)
             await this.master.withdraw(0, 1000, { from: bob }) //650
 
-            await time.advanceBlockTo('749')
+            await time.advanceBlockTo(currBlockCount + 749)
             await this.master.withdraw(0, 1000, { from: carol }) //650
 
             // 15 * 100 / 165
