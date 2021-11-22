@@ -40,17 +40,26 @@ contract YnetToken is BEP20 {
     event YnetRouterUpdated(address indexed operator, address indexed router, address indexed pair);
     event SwapAndLiquify(uint256 tokensSwapped, uint256 ethReceived, uint256 tokensIntoLiqudity);
 
+    /**
+     * @notice Checks if the function is called by operator.
+     */
     modifier onlyOperator() {
         require(_operator == msg.sender, "operator: caller is not the operator");
         _;
     }
 
+    /**
+     * @notice Used in swapAndLiquify(), to avoid recursive calls.
+     */
     modifier lockTheSwap {
         _inSwapAndLiquify = true;
         _;
         _inSwapAndLiquify = false;
     }
 
+    /**
+     * @notice Used in swapAndLiquify(), to make token swap transfer tax free.
+     */
     modifier transferTaxFree {
         uint16 _transferTaxRate = transferTaxRate;
         transferTaxRate = 0;
@@ -114,11 +123,11 @@ contract YnetToken is BEP20 {
         if (contractTokenBalance >= minAmountToLiquify) {
             
             // only min amount to liquify
-            uint256 liquifyAmount = minAmountToLiquify;
+            uint256 liquifyAmount = minAmountToLiquify;   
 
             // split the liquify amount into halves
-            uint256 half = liquifyAmount.div(2);
-            uint256 otherHalf = liquifyAmount.sub(half);
+            uint256 half = liquifyAmount.div(2);          
+            uint256 otherHalf = liquifyAmount.sub(half);  
 
             // capture the contract's current BNB balance.
             // this is so that we can capture exactly the amount of BNB that the

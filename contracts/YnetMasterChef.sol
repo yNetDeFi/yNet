@@ -28,12 +28,12 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         uint256 rewardDebt;     // Reward debt. See explanation below.
         uint256 rewardLockedUp; // Reward locked up.
         //
-        // We do some fancy math here. Basically, any point in time, the amount of Ynets
-        // entitled to a user but is pending to be distributed is:
+        // At any point in time, the pending amount of Ynets
+        // to be distributed to a user is calculated as :
         //
         //   pending reward = (user.amount * pool.accYnetPerShare) - user.rewardDebt
         //
-        // Whenever a user deposits or withdraws LP tokens to a pool. Here's what happens:
+        // Whenever a user deposits or withdraws LP tokens to a pool :
         //   1. The pool's `accYnetPerShare` (and `lastRewardBlock`) gets updated.
         //   2. User receives the pending reward sent to his/her address.
         //   3. User's `amount` gets updated.
@@ -103,6 +103,9 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
 	event UpdateStartBlockHarvest(address indexed caller, uint256 _oldStartBlockHarvest, uint256 _newStartBlockHarvest);
 	event RewardLockedUp(address indexed user, uint256 indexed pid, uint256 amountLockedUp);
 
+    /**
+     * @notice Constructs the yNetMasterChef contract.
+     */
     constructor(
         YnetToken _ynet,
         uint256 _startBlock
@@ -117,11 +120,20 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         startBlockHarvest = _startBlock;
     }
 
+    /** 
+    *@notice Returns the number of pools.
+    */
     function poolLength() external view returns (uint256) {
         return poolInfo.length;
     }
 
-    // Add a new lp to the pool. Can only be called by the owner.
+     /**
+     *@dev Adds new pool to poolInfo, must be called by owner.
+     *@param _allocPoint Allocation points for pool to be added
+     *@param _lpToken Contract address of pool
+     *@param _depositFeeBP Represents deposit fee for pool in basis points
+     *@param _withUpdate If true, runs massUpdatePool()
+     */
     // XXX DO NOT add the same LP token more than once. Rewards will be messed up if you do.
     function add(uint256 _allocPoint, IBEP20 _lpToken, uint16 _depositFeeBP, bool _withUpdate) public onlyOwner {
         require(_depositFeeBP <= 10000, "add: invalid deposit fee basis points");
@@ -139,7 +151,13 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         }));
     }
 
-    // Update the given pool's Ynet allocation point and deposit fee. Can only be called by the owner.
+    /**
+     *@dev Modifies an added pool, can be called by owner only.
+     *@param _pid Pool ID of pool to be updated
+     *@param _allocPoint Allocation points for pool to be updated
+     *@param _depositFeeBP Deposit fee for updated pool in basis points
+     *@param _withUpdate If true, runs massUpdatePool()
+     */
     function set(uint256 _pid, uint256 _allocPoint, uint16 _depositFeeBP, bool _withUpdate) public onlyOwner {
         require(_depositFeeBP <= 10000, "set: invalid deposit fee basis points");
         if (_withUpdate) {
@@ -150,12 +168,20 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         poolInfo[_pid].depositFeeBP = _depositFeeBP;
     }
 
-    // Return reward multiplier over the given _from to _to block.
+    /** 
+    *@notice Return reward multiplier over the given _from to _to block.
+    *@param _from first block number.
+    *@param _to second block number.
+    */
     function getMultiplier(uint256 _from, uint256 _to) public pure returns (uint256) {
         return _to.sub(_from);
     }
 
-    // View function to see pending Ynets on frontend.
+    /** 
+    *@dev Returns pending yNets of a user on frontend.
+    *@param _pid Pool ID of the pool.
+    *@param _user Address of the user.
+    */
     function pendingYnet(uint256 _pid, address _user) external view returns (uint256) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
@@ -170,7 +196,9 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         return pending.add(user.rewardLockedUp);
     }
 
-    // Update reward variables for all pools. Be careful of gas spending!
+    /** 
+    *@dev Update reward variables for all pools.
+    */
     function massUpdatePools() public {
         uint256 length = poolInfo.length;
         for (uint256 pid = 0; pid < length; ++pid) {
@@ -178,7 +206,10 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         }
     }
 
-    // Update reward variables of the given pool to be up-to-date.
+    /** 
+    *@dev Update reward variables of the given pool to be up-to-date.
+    *@param _pid Pool ID of the pool.
+    */
     function updatePool(uint256 _pid) public {
         PoolInfo storage pool = poolInfo[_pid];
         if (block.number <= pool.lastRewardBlock) {
@@ -197,7 +228,12 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         pool.lastRewardBlock = block.number;
     }
 
-    // Deposit LP tokens to YnetMasterChef for Ynet allocation.
+    /**
+     *@notice Deposits _amount from user's balance to pool _pid
+     *@param _pid Pool ID of pool in which amount will be deposited
+     *@param _amount Number of tokens to be deposited
+     *@param _referrer Address of the referrer, if any
+     */
     function deposit(uint256 _pid, uint256 _amount, address _referrer) public nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
@@ -209,10 +245,7 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         
         if (_amount > 0) {
             pool.lpToken.safeTransferFrom(address(msg.sender), address(this), _amount);
-            // if (address(pool.lpToken) == address(ynet)) {
-            //     uint256 transferTax = _amount.mul(2).div(100);
-            //     _amount = _amount.sub(transferTax);
-            // }
+            
             if (address(pool.lpToken) == address(ynet)) {
                 uint256 transferTax = _amount.mul(ynet.transferTaxRate()).div(10000);
                 _amount = _amount.sub(transferTax);
@@ -229,7 +262,11 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         emit Deposit(msg.sender, _pid, _amount);
     }
 
-    // Withdraw LP tokens from YnetMasterChef.
+    /**
+     *@notice Withdraws _amount from given pool to user's address.
+     *@param _pid Pool ID of pool from where amount will be withdrawn.
+     *@param _amount Number of tokens to be withdrawn.
+     */
     function withdraw(uint256 _pid, uint256 _amount) public nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
@@ -237,11 +274,6 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         updatePool(_pid);
         payOrLockupPendingYnet(_pid);
 
-        /* uint256 pending = user.amount.mul(pool.accYnetPerShare).div(1e12).sub(user.rewardDebt);
-        if (pending > 0) {
-            safeYnetTransfer(msg.sender, pending);
-            payReferralCommission(msg.sender, pending);
-        } */
         if (_amount > 0) {
             user.amount = user.amount.sub(_amount);
             pool.lpToken.safeTransfer(address(msg.sender), _amount);
@@ -250,7 +282,10 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         emit Withdraw(msg.sender, _pid, _amount);
     }
 
-    // Withdraw without caring about rewards. EMERGENCY ONLY.
+    /** 
+    *@notice Withdraw without caring about rewards. EMERGENCY ONLY.
+    *@param _pid Pool ID of the pool.
+    */
     function emergencyWithdraw(uint256 _pid) public nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
@@ -262,7 +297,10 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         emit EmergencyWithdraw(msg.sender, _pid, amount);
     }
 
-        // Pay or lockup pending YNETs.
+    /** 
+    *@dev Pay or Lockup user's pending YNETs based on harvest period.
+    *@param _pid Pool ID of the pool.
+    */
     function payOrLockupPendingYnet(uint256 _pid) internal {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
@@ -287,7 +325,11 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         }
     }
 
-    // Safe ynet transfer function, just in case if rounding error causes pool to not have enough Ynets.
+    /** 
+    *@dev yNet transfer function
+    *@param _to Address of the receiver.
+    *@param _amount Amount to be transferred.
+    */
     function safeYnetTransfer(address _to, uint256 _amount) internal {
         uint256 ynetBal = ynet.balanceOf(address(this));
         bool transferSuccess = false;
@@ -299,18 +341,27 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         require(transferSuccess, "safeYnetTransfer: Transfer failed");
     }
 
-    // Update dev address by the previous dev.
+    /** 
+    *@dev Updates dev address, can be called by the previous dev only.
+    *@param _devAddress Address of the new dev.
+    */
     function setDevAddress(address _devAddress) public {
         require(msg.sender == devAddress, "setDevAddress: FORBIDDEN");
         devAddress = _devAddress;
     }
 
+    /** 
+    *@dev Updates fee address, can be called by the previous fee address only.
+    *@param _feeAddress Address of the new fee address.
+    */
     function setFeeAddress(address _feeAddress) public {
         require(msg.sender == feeAddress, "setFeeAddress: FORBIDDEN");
         feeAddress = _feeAddress;
     }
 
-    // Reduce emission rate by 3% every 9,600 blocks ~ 8hours. This function can be called publicly.
+    /** 
+    *@dev Reduces emission rate of yNet.
+    */
     function updateEmissionRate() public {
         require(block.number > startBlock, "updateEmissionRate: Can only be called after mining starts");
         require(ynetPerBlock > MINIMUM_EMISSION_RATE, "updateEmissionRate: Emission rate has reached the minimum threshold");
@@ -337,30 +388,46 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
         emit EmissionRateUpdated(msg.sender, previousEmissionRate, newEmissionRate);
     }
     
-    // updateHarvestTime, how many blocks
+    /** 
+    *@dev Updates harvest time, in blocks.
+    *@param _harvestTime New harvest time.
+    */
     function updateHarvestTime(uint256 _harvestTime) public onlyOwner {
         harvestTime = _harvestTime;
 		emit UpdateHarvestTime(msg.sender, harvestTime, _harvestTime);
     }	
 
-    // updateStartBlockHarvest
+    /** 
+    *@dev Sets next start block of harvest period, in blocks. Can be called by owner only.
+    *@param _startBlockHarvest New start block harvest.
+    */
     function updateStartBlockHarvest(uint256 _startBlockHarvest) public onlyOwner {
         startBlockHarvest = _startBlockHarvest;
 		emit UpdateStartBlockHarvest(msg.sender, startBlockHarvest, _startBlockHarvest);
     }
 
-    // Update the ynet referral contract address by the owner
+    /** 
+    *@dev Updates the ynet referral contract address, can be called by owner only.
+    *@param _ynetReferral Referral contract address.
+    */
     function setYnetReferral(IYnetReferral _ynetReferral) public onlyOwner {
         ynetReferral = _ynetReferral;
     }
 
-    // Update referral commission rate by the owner
+    /** 
+    *@dev Updates referral commission rate for the masterChef contract, can be called by owner only.
+    *@param _referralCommissionRate New referral commission rate.
+    */
     function setReferralCommissionRate(uint16 _referralCommissionRate) public onlyOwner {
         require(_referralCommissionRate <= MAXIMUM_REFERRAL_COMMISSION_RATE, "setReferralCommissionRate: invalid referral commission rate basis points");
         referralCommissionRate = _referralCommissionRate;
     }
 
-    // Pay referral commission to the referrer who referred this user.
+    /** 
+    *@dev Function to pay referral commission to the referrer.
+    *@param _user Address of the referrer.
+    *@param _pending Amount to be paid to referrer.
+    */
     function payReferralCommission(address _user, uint256 _pending) internal {
         if (address(ynetReferral) != address(0) && referralCommissionRate > 0) {
             address referrer = ynetReferral.getReferrer(_user);

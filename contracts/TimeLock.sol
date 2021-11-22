@@ -37,7 +37,11 @@ contract Timelock {
 
     mapping (bytes32 => bool) public queuedTransactions;
 
-
+    /**
+     * @notice Constructs the Timelock contract.
+     * @param admin_ Address of admin of timelock contract.
+     * @param delay_ Time of delay between queue and execution of transaction.
+     */
     constructor(address admin_, uint delay_) public {
         require(delay_ >= MINIMUM_DELAY, "Timelock::constructor: Delay must exceed minimum delay.");
         require(delay_ <= MAXIMUM_DELAY, "Timelock::constructor: Delay must not exceed maximum delay.");
@@ -47,6 +51,9 @@ contract Timelock {
         admin_initialized = false;
     }
 
+    /**
+     * @notice Checks if the function is called by admin.
+     */
     modifier onlyAdmin() {
         require(msg.sender == admin, "Timelock: Call must come from admin.");
         _;
@@ -55,6 +62,10 @@ contract Timelock {
     // XXX: function() external payable { }
     receive() external payable { }
 
+    /**
+     * @dev Sets the delay for execution.
+     * @param delay_ Delay represented in blocks.
+     */
     function setDelay(uint delay_) public {
         require(msg.sender == address(this), "Timelock::setDelay: Call must come from Timelock.");
         require(delay_ >= MINIMUM_DELAY, "Timelock::setDelay: Delay must exceed minimum delay.");
@@ -64,6 +75,9 @@ contract Timelock {
         emit NewDelay(delay);
     }
 
+    /**
+     * @dev Sets the caller as admin, caller needs to be registered in pending admin first.
+     */
     function acceptAdmin() public {
         require(msg.sender == pendingAdmin, "Timelock::acceptAdmin: Call must come from pendingAdmin.");
         admin = msg.sender;
@@ -72,6 +86,11 @@ contract Timelock {
         emit NewAdmin(admin);
     }
 
+    /**
+     * @dev Sets the pending admin, can only be called by admin for the first time.
+     * subsequent calls will be made by timelock contract.
+     * @param pendingAdmin_ address of pendingAdmin.
+     */
     function setPendingAdmin(address pendingAdmin_) public {
         // allows one time setting of admin for deployment purposes
         if (admin_initialized) {
@@ -85,6 +104,14 @@ contract Timelock {
         emit NewPendingAdmin(pendingAdmin);
     }
 
+    /**
+     * @dev queues a transaction into the timelock contract, can only be called by the admin.
+     * @param target address of target contract.
+     * @param value value of BNB to be sent.
+     * @param signature signature of the function to be called.
+     * @param data call data.
+     * @param eta epoch time after which the queued transaction will be executed.
+     */
     function queueTransaction(address target, uint value, string memory signature, bytes memory data, uint eta) public onlyAdmin returns (bytes32) {
         
         require(eta >= getBlockTimestamp().add(delay), "Timelock::queueTransaction: Estimated execution block must satisfy delay.");
@@ -96,6 +123,14 @@ contract Timelock {
         return txHash;
     }
 
+    /**
+     * @dev cancels a queued transaction from the timelock contract, can only be called by the admin.
+     * @param target address of target contract.
+     * @param value value of BNB to be sent.
+     * @param signature signature of the function to be called.
+     * @param data call data.
+     * @param eta epoch time after which the queued transaction will be executed.
+     */
     function cancelTransaction(address target, uint value, string memory signature, bytes memory data, uint eta) public onlyAdmin {
         
         bytes32 txHash = keccak256(abi.encode(target, value, signature, data, eta));
@@ -104,6 +139,14 @@ contract Timelock {
         emit CancelTransaction(txHash, target, value, signature, data, eta);
     }
 
+    /**
+     * @dev executes a queued transaction from the timelock contract, can only be called by the admin.
+     * @param target address of target contract.
+     * @param value value of BNB to be sent.
+     * @param signature signature of the function to be called.
+     * @param data call data.
+     * @param eta epoch time after which the queued transaction will be executed.
+     */
     function executeTransaction(address target, uint value, string memory signature, bytes memory data, uint eta) public onlyAdmin payable returns (bytes memory) {
     
         bytes32 txHash = keccak256(abi.encode(target, value, signature, data, eta));
@@ -130,6 +173,9 @@ contract Timelock {
         return returnData;
     }
 
+    /**
+     * @dev returns current block timestamp.
+     */
     function getBlockTimestamp() internal view returns (uint) {
         // solium-disable-next-line security/no-block-members
         return block.timestamp;
