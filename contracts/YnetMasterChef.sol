@@ -57,19 +57,14 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
     // Ynet tokens created per block.
     uint256 public ynetPerBlock;
 
-    // Harvest time (how many block);
-    uint256 public harvestTime; 
-	// Start Block Harvest
-    uint256 public startBlockHarvest;
-
     // Initial emission rate: 1 Ynet per block.
-    uint256 public constant INITIAL_EMISSION_RATE = 1 ether;
+    uint256 public constant INITIAL_EMISSION_RATE = 10;
     // Minimum emission rate: 0.1 Ynet per block.
-    uint256 public constant MINIMUM_EMISSION_RATE = 100 finney;
+    uint256 public constant MINIMUM_EMISSION_RATE = 1;
     // Reduce emission every 9,600 blocks ~ 8 hours.
-    uint256 public constant EMISSION_REDUCTION_PERIOD_BLOCKS = 9600;
+    uint256 public constant EMISSION_REDUCTION_PERIOD_BLOCKS = 100;
     // Emission reduction rate per period in basis points: 3%.
-    uint256 public constant EMISSION_REDUCTION_RATE_PER_PERIOD = 300;
+    uint256 public constant EMISSION_REDUCTION_RATE_PER_PERIOD = 5000;
     // Last reduction period index
     uint256 public lastReductionPeriodIndex = 0;
 
@@ -85,7 +80,7 @@ contract YnetMasterChef is Ownable, ReentrancyGuard {
     // Ynet referral contract address.
     IYnetReferral public ynetReferral;
     // Referral commission rate in basis points.
-    uint16 public referralCommissionRate = 300;
+    uint16 public referralCommissionRate = 200;
     // Max referral commission rate: 20%.
     uint16 public constant MAXIMUM_REFERRAL_COMMISSION_RATE = 2000;
 

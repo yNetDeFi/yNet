@@ -1,146 +1,57 @@
-const { expectRevert, time, constants, BN } = require('@openzeppelin/test-helpers')
+const { expectRevert, time, constants } = require('@openzeppelin/test-helpers')
 const YnetToken = artifacts.require('YnetToken')
+const { assert } = require("chai");
 const YnetMasterChef = artifacts.require('YnetMasterChef')
 const MockBEP20 = artifacts.require('MockBEP20')
 
-contract('YnetMasterChef', ([alice, bob, carol, dev, eliah, minter, feeAddress, devAddress]) => {
+contract('YnetMasterChef', ([owner, alice, bob, carol, dev, eliah,minter]) => {
     beforeEach(async () => {
-        this.YnetToken = await YnetToken.new({ from: alice })
+        this.YnetToken = await YnetToken.new({ from: owner })
     })
+
+    it('start block should not be ahead by 30 days of current block number', async () => {
+        this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: alice })
+        await this.master.add('200', this.YnetToken.address,200, true, { from: alice })
+        assert.equal((await this.master.poolInfo(0)).lastRewardBlock.valueOf(), 100)
+
+        await expectRevert(
+            this.master.updateStartBlock(864500, { from: alice }),
+            "Start block should not be more than 30 days ahead of current block")
+        await expectRevert(
+                this.master.updateStartBlock(2500, { from: bob }),
+            "Ownable: caller is not the owner")
+        await this.master.updateStartBlock(2500, { from: alice });
+
+        assert.equal((await this.master.startBlock()).valueOf(), 2500)
+        assert.equal((await this.master.poolInfo(0)).lastRewardBlock.valueOf(), 2500)
+
+    })
+
 
     it('should set correct state variables', async () => {
-        this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: alice })
-        await this.YnetToken.transferOwnership(this.master.address, { from: alice })
+        this.master = await YnetMasterChef.new(this.YnetToken.address,100, { from: owner })
 
-        assert.equal(await this.master.ynet().valueOf(), this.YnetToken.address)
+        assert.equal((await this.master.ynet()).valueOf(), this.YnetToken.address)
+        assert.equal((await this.master.devAddress()).valueOf(), owner)
+        assert.equal((await this.master.feeAddress()).valueOf(), owner)
+        assert.equal((await this.master.ynetPerBlock()).valueOf(), 10)
+        assert.equal((await this.master.INITIAL_EMISSION_RATE()).valueOf(), 10)
+        assert.equal((await this.master.MINIMUM_EMISSION_RATE()).valueOf(), 1)
+        assert.equal((await this.master.EMISSION_REDUCTION_PERIOD_BLOCKS()).valueOf(), 100)
+        assert.equal((await this.master.EMISSION_REDUCTION_RATE_PER_PERIOD()).valueOf(), 5000)
         assert.equal((await this.master.startBlock()).valueOf(), 100)
-        assert.equal((await this.master.feeAddress()).valueOf(), alice)
-    })
-
-    it('should allow only master farmer can mint', async () => {
-        this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: alice })
-        await this.YnetToken.transferOwnership(minter, { from: alice })
-        assert.equal((await this.YnetToken.owner()).valueOf(), minter)
-        await expectRevert(
-            this.YnetToken.mint(alice, '10000000000', { from: alice }),
-            "Ownable: caller is not the owner")
-
-        await this.YnetToken.mint(alice, '10000000000', { from: minter })
-        assert.equal((await this.YnetToken.balanceOf(alice)).valueOf(), "10000000000")
-    })
-
-    it('should update dev address by pervious dev only ', async () => {
-        this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: alice })
-        await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-
-        await expectRevert(
-            this.master.setDevAddress(devAddress, { from: bob }),
-            'setDevAddress: FORBIDDEN')
-
-        await this.master.setDevAddress(devAddress, { from: alice })
-        assert.equal((await this.master.devAddress.call()).valueOf(), devAddress)
-    })
-
-    it('should update fee address by pervious feeAddress only ', async () => {
-        this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: alice })
-        await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-
-        await expectRevert(
-            this.master.setFeeAddress(feeAddress, { from: bob }),
-            'setFeeAddress: FORBIDDEN')
-
-        await this.master.setFeeAddress(feeAddress, { from: alice })
-        assert.equal((await this.master.feeAddress.call()).valueOf(), feeAddress)
-    })
-
-    // Reduce from 1 Ynet/block to 0.97 Ynet/block after 9600 blocks ie 8 hours.
-    /**
-    it('should reduce the EMISSION RATE by 3% after 9600 blocks  ', async () => {
-        this.master = await MasterChefHarvest.new(this.YnetToken.address, 100, { from: alice })
-        await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-     
-        await time.advanceBlockTo(99);
-        await time.advanceBlockTo(130);
-        await this.master.updateEmissionRate({from : bob})
-        console.log("Current Block Height : ",await  time.latestBlock()) 
-        assert.equal((await this.master.ynetPerBlock.call()).toString() , '1000000000000000000') 
-        assert.equal((await this.master.INITIAL_EMISSION_RATE.call()).toString() ,'1000000000000000000') 
-        assert.equal((await this.master.EMISSION_REDUCTION_PERIOD_BLOCKS.call()).toString() , '9600') 
-        assert.equal((await this.master.EMISSION_REDUCTION_RATE_PER_PERIOD.call()).toString() , '300') 
-        await time.advanceBlockTo(9701); 
-        console.log("Current Block Height : ",await  time.latestBlock()) 
-        await this.master.updateEmissionRate({from : bob})
-        assert.equal((await this.master.ynetPerBlock.call()).toString() , '970000000000000000') 
-        assert.equal((await this.master.EMISSION_REDUCTION_PERIOD_BLOCKS.call()).toString() , '9600') 
-        assert.equal((await this.master.EMISSION_REDUCTION_RATE_PER_PERIOD.call()).toString() , '300')  
-        console.log("Current Block Height : ",await  time.latestBlock()) 
-        await time.advanceBlockTo(19302); 
-        await this.master.updateEmissionRate({from : bob})
-        assert.equal((await this.master.ynetPerBlock.call()).toString() ,'940900000000000000') 
-    }) */
-
-    it('should allow multiple deposit & partial withdraw properly', async () => {
-        this.lp1 = await MockBEP20.new('Token1', 'TK1', '10000000000', { from: minter })
-        await this.lp1.transfer(alice, '2000', { from: minter })
-        await this.lp1.transfer(bob, '2000', { from: minter })
-
-        this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: alice })
-        await this.master.add(100, this.lp1.address, 500, true, { from: alice })
-
-        await this.lp1.approve(this.master.address, 1000, { from: alice })
-        await this.lp1.approve(this.master.address, 1000, { from: bob })
-
-        assert.equal((await this.lp1.allowance(alice, this.master.address)).valueOf(), '1000')
-        assert.equal((await this.lp1.balanceOf(this.master.address)).valueOf(), '0')
-
-        await this.master.setFeeAddress(feeAddress, { from: alice })
-        await this.master.setDevAddress(devAddress, { from: alice })
-        await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-
-        await time.advanceBlockTo(99);
-
-        await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: alice })
-        assert.equal((await this.lp1.balanceOf(this.master.address)).toString(), '95') // 100 - 5% of 100
-        assert.equal((await this.lp1.balanceOf(await this.master.feeAddress.call())).valueOf(), '5') // 5% of 100 
-
-        await this.master.deposit(0, '200', constants.ZERO_ADDRESS, { from: alice })
-        assert.equal((await this.lp1.balanceOf(this.master.address)).toString(), '285') // 200 - 5% of 200 + previous : 95
-        assert.equal((await this.lp1.balanceOf(await this.master.feeAddress.call())).valueOf(), '15') // 5% of 200 + previous : 5 
-
-        await this.master.withdraw(0, '150', { from: alice })
-
-        await this.master.deposit(0, '300', constants.ZERO_ADDRESS, { from: alice })
-        assert.equal((await this.lp1.balanceOf(this.master.address)).toString(), '420') // 285 + 285 -150
-        assert.equal((await this.lp1.balanceOf(await this.master.feeAddress.call())).valueOf(), '30') // 5% of 300 + 15
-
-        await this.master.withdraw(0, '250', { from: alice })
-
-        await this.master.deposit(0, '400', constants.ZERO_ADDRESS, { from: alice })
-        assert.equal((await this.lp1.balanceOf(this.master.address)).toString(), '550') // 380 + 420 -250
-        assert.equal((await this.lp1.balanceOf(await this.master.feeAddress.call())).valueOf(), '50') // 20 + 30 
-        assert.equal((await this.master.userInfo(0, alice)).amount.valueOf(), '550') // total available in contract == user.amount
-
-        await expectRevert(
-            this.master.deposit(0, '1', constants.ZERO_ADDRESS, { from: alice }),
-            'BEP20: transfer amount exceeds allowance')
-
-        assert.equal((await this.lp1.balanceOf(bob)).toString(), '2000') // 2000(total) - 1000(Remaining)
-
-        await this.master.withdraw(0, '250', { from: alice }) // total withdrawn : 950 only as 5% ie 50 deposit fee.
-
-        assert.notEqual((await this.YnetToken.balanceOf(alice)).valueOf(), '0')
-        assert.notEqual((await this.YnetToken.balanceOf(this.master.address)).valueOf(), '300')
-
+        assert.equal((await this.master.referralCommissionRate()).valueOf(), 200)
+        assert.equal((await this.master.MAXIMUM_REFERRAL_COMMISSION_RATE()).valueOf(), 2000)
     })
 
     context('With LP token added to the field', () => {
         beforeEach(async () => {
-            this.lp1 = await MockBEP20.new('Token1', 'TK1', '10000000000', { from: minter })
-            await this.lp1.transfer(alice, '1000', { from: minter })
-            await this.lp1.transfer(bob, '1000', { from: minter })
-            await this.lp1.transfer(carol, '1000', { from: minter })
-            await this.lp1.transfer(dev, '1000', { from: minter })
-            await this.lp1.transfer(eliah, '1000', { from: minter })
+            this.lp = await MockBEP20.new('Token1', 'TK1', '10000000000', { from: minter })
+            await this.lp.transfer(alice, '1000', { from: minter })
+            await this.lp.transfer(bob, '1000', { from: minter })
+            await this.lp.transfer(carol, '1000', { from: minter })
+            await this.lp.transfer(dev, '1000', { from: minter })
+            await this.lp.transfer(eliah, '1000', { from: minter })
             this.lp2 = await MockBEP20.new('Token2', 'TK2', '10000000000', { from: minter })
             await this.lp2.transfer(alice, '1000', { from: minter })
             await this.lp2.transfer(bob, '1000', { from: minter })
@@ -150,388 +61,417 @@ contract('YnetMasterChef', ([alice, bob, carol, dev, eliah, minter, feeAddress, 
         })
 
         it('should correct add new pool and set pool', async () => {
-            let currBlockCount = (await time.latestBlock()).toNumber();
-            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
+            // 10 per block, start at block 100
+            this.master = await YnetMasterChef.new(this.YnetToken.address, 100,{ from: owner })
 
-            await this.master.add('100', this.lp1.address, 1000, true, { from: alice })
-            assert.equal((await this.master.poolInfo(0)).lpToken.valueOf(), this.lp1.address)
+            await this.master.add('100', this.lp.address,200, true, { from: owner})
+            assert.equal((await this.master.poolInfo(0)).lpToken.valueOf(), this.lp.address)
             assert.equal((await this.master.poolInfo(0)).allocPoint.valueOf(), '100')
-            assert.equal((await this.master.poolInfo(0)).lastRewardBlock.valueOf(), currBlockCount + 100)
+            assert.equal((await this.master.poolInfo(0)).lastRewardBlock.valueOf(), '100')
             assert.equal((await this.master.poolInfo(0)).accYnetPerShare.valueOf(), '0')
-            assert.equal((await this.master.poolInfo(0)).depositFeeBP.valueOf(), '1000')
+            assert.equal((await this.master.poolInfo(0)).depositFeeBP.valueOf(), '200')
 
             await expectRevert(
-                this.master.add('100', this.lp2.address, 500, true, { from: bob }),
+                this.master.add('100', this.lp2.address,300, true, { from: bob}),
                 "Ownable: caller is not the owner"
             )
+            await expectRevert(
+                this.master.add('100', this.lp2.address,1000, true, { from: owner}),
+                "add: invalid deposit fee basis points"
+            )
 
-            await this.master.add('300', this.lp2.address, 700, true, { from: alice })
+            await this.master.add('300', this.lp2.address,400, true, { from: owner})
             assert.equal((await this.master.poolInfo(1)).lpToken.valueOf(), this.lp2.address)
             assert.equal((await this.master.poolInfo(1)).allocPoint.valueOf(), '300')
-            assert.equal((await this.master.poolInfo(1)).lastRewardBlock.valueOf(), currBlockCount + 100)
+            assert.equal((await this.master.poolInfo(1)).lastRewardBlock.valueOf(), '100')
             assert.equal((await this.master.poolInfo(1)).accYnetPerShare.valueOf(), '0')
-            assert.equal((await this.master.poolInfo(1)).depositFeeBP.valueOf(), '700')
-            // assert.equal((await this.master.poolId1(this.lp2.address)).valueOf(), '2')
+            assert.equal((await this.master.poolInfo(1)).depositFeeBP.valueOf(), '400')
 
             assert.equal((await this.master.totalAllocPoint()).valueOf(), '400')
 
-            await this.master.set(1, 400, 500, true, { from: alice })
+            await this.master.set(1, 400,100, true, { from: owner})
             assert.equal((await this.master.poolInfo(1)).allocPoint.valueOf(), '400')
-            assert.equal((await this.master.poolInfo(1)).depositFeeBP.valueOf(), '500')
+            assert.equal((await this.master.poolInfo(1)).depositFeeBP.valueOf(), '100')
             assert.equal((await this.master.totalAllocPoint()).valueOf(), '500')
+
+            assert.equal((await this.master.poolLength()).valueOf(), '2')
         })
 
         it('should allow emergency withdraw', async () => {
-            let currBlockCount = (await time.latestBlock()).toNumber();
+            this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: owner })
 
-            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
+            await this.master.add('100', this.lp.address,200, true)
+            await this.lp.approve(this.master.address, '1000', { from: bob })
 
-            await this.master.add('100', this.lp1.address, 1000, true)
-            await this.lp1.approve(this.master.address, '1000', { from: bob })
-
-            await time.advanceBlockTo(currBlockCount + 110);
-            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: bob })
-            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '900')
-            
+            await time.advanceBlockTo(110);
+            await this.master.deposit(0, '100',constants.ZERO_ADDRESS, { from: bob })
+            assert.equal((await this.lp.balanceOf(bob)).valueOf(), '900')
             await this.master.emergencyWithdraw(0, { from: bob })
-            assert.equal((await this.YnetToken.balanceOf(bob)).valueOf(), '0')  // bob's reward
-            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '990')
+            assert.equal((await this.YnetToken.balanceOf(bob)).valueOf(), '0')
+            assert.equal((await this.lp.balanceOf(bob)).valueOf(), '998')
         })
 
-        it('should check the attack', async () => {
-            let currBlockCount = (await time.latestBlock()).toNumber();
-
-            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
-            // await this.YnetToken.transferOwnership(minter, { from: alice })
-            await this.YnetToken.mint(bob, '1000', { from: alice })
-            await this.YnetToken.mint(carol, '1000', { from: alice })
-            await this.master.add('100', this.YnetToken.address, 1000, true);
-            assert.equal((await this.YnetToken.balanceOf(bob)).valueOf(), '1000');
-            assert.equal((await this.YnetToken.balanceOf(carol)).valueOf(), '1000');
-            assert.equal((await this.YnetToken.totalSupply()).valueOf(), '2000');
-            await this.YnetToken.approve(this.master.address, '1000', { from: bob })
-            await this.YnetToken.approve(this.master.address, '1000', { from: carol })
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-
-            await this.master.setDevAddress(devAddress, { from: alice })
-            await this.master.setFeeAddress(feeAddress, { from: alice })
-
-            await time.advanceBlockTo(currBlockCount + 99);
-
-            await this.master.deposit(0, '1000', constants.ZERO_ADDRESS, { from: bob })
-            assert.equal((await this.YnetToken.balanceOf(bob)).valueOf(), '0');
-            assert.equal((await this.YnetToken.balanceOf(this.master.address)).valueOf(), '833');
-
-            await this.master.deposit(0, '1000', constants.ZERO_ADDRESS, { from: carol })
-            assert.equal((await this.YnetToken.balanceOf(carol)).valueOf(), '0');
-
-            // calculation for user.amount in pool.
-            //1000 -2% (transfer tax on every transaction of YNet token) 0f 1000 = 980
-            // 980 - 10%(pool deposit fee) of 980 = 882 
-            await expectRevert(
-                this.master.withdraw(0, '834', { from: bob }),
-                'withdraw: not good')
-
-            await this.master.withdraw(0, '833', { from: bob });
-
-            assert(true, "User is unable to wihdraw the higher token amount then which is been recived by contract during his/her deposit .Not prone to attack happened!! ")
-        })
-
-        it('should allow LP tokens deposit & withdraw properly', async () => {
-            let currBlockCount = (await time.latestBlock()).toNumber();
-
-            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
-            await this.master.add(100, this.lp1.address, 500, true, { from: alice })
-
-            await this.master.add(100, this.lp2.address, 1000, true, { from: alice })
-
-            await this.lp1.approve(this.master.address, 1000, { from: alice })
-            await this.lp1.approve(this.master.address, 1000, { from: bob })
-            await this.lp1.approve(this.master.address, 1000, { from: carol })
-            await this.lp1.approve(this.master.address, 1000, { from: dev })
-            await this.lp1.approve(this.master.address, 1000, { from: eliah })
-
-            await this.lp2.approve(this.master.address, 1000, { from: alice })
-            await this.lp2.approve(this.master.address, 1000, { from: bob })
-            await this.lp2.approve(this.master.address, 1000, { from: carol })
-            await this.lp2.approve(this.master.address, 1000, { from: dev })
-            await this.lp2.approve(this.master.address, 1000, { from: eliah })
-
-            assert.equal((await this.lp1.allowance(alice, this.master.address)).valueOf(), '1000')
-            assert.equal((await this.lp1.allowance(bob, this.master.address)).valueOf(), "1000")
-            assert.equal((await this.lp1.allowance(carol, this.master.address)).valueOf(), '1000')
-            assert.equal((await this.lp1.allowance(dev, this.master.address)).valueOf(), '1000')
-            assert.equal((await this.lp1.allowance(eliah, this.master.address)).valueOf(), '1000')
-
-            assert.equal((await this.lp2.allowance(alice, this.master.address)).valueOf(), '1000')
-            assert.equal((await this.lp2.allowance(bob, this.master.address)).valueOf(), '1000')
-            assert.equal((await this.lp2.allowance(dev, this.master.address)).valueOf(), '1000')
-            assert.equal((await this.lp2.allowance(carol, this.master.address)).valueOf(), '1000')
-            assert.equal((await this.lp2.allowance(eliah, this.master.address)).valueOf(), '1000')
-
-            assert.equal((await this.lp1.balanceOf(this.master.address)).valueOf(), '0')
-            assert.equal((await this.lp2.balanceOf(this.master.address)).valueOf(), '0')
-
-            await this.master.setFeeAddress(feeAddress, { from: alice })
-            await this.master.setDevAddress(devAddress, { from: alice })
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-
-            await time.advanceBlockTo(currBlockCount + 99);
-
-            await this.master.deposit(0, '1000', constants.ZERO_ADDRESS, { from: alice })
-            assert.equal((await this.lp1.balanceOf(this.master.address)).toString(), '950') // 1000 - 5% of 1000
-            assert.equal((await this.lp1.balanceOf(await this.master.feeAddress.call())).valueOf(), '50') // 100 - 5% of 100
-
-            await this.master.deposit(0, '1000', constants.ZERO_ADDRESS, { from: bob })
-            await this.master.deposit(0, '1000', constants.ZERO_ADDRESS, { from: carol })
-            await this.master.deposit(0, '1000', constants.ZERO_ADDRESS, { from: dev })
-            await this.master.deposit(0, '1000', constants.ZERO_ADDRESS, { from: eliah })
-
-            assert.equal((await this.lp1.balanceOf(this.master.address)).toString(), '4750') // 950* 5 
-            assert.equal((await this.lp1.balanceOf(await this.master.feeAddress.call())).valueOf(), '250') // 50 * 5
-            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '0')
-            assert.equal((await this.lp1.balanceOf(carol)).valueOf(), '0')
-            assert.equal((await this.lp1.balanceOf(dev)).valueOf(), '0')
-            assert.equal((await this.lp1.balanceOf(eliah)).valueOf(), '0')
-
-            await this.master.deposit(1, '1000', constants.ZERO_ADDRESS, { from: alice })
-            assert.equal((await this.lp2.balanceOf(this.master.address)).toString(), '900') // 1000 - 10% of 1000
-            assert.equal((await this.lp2.balanceOf(await this.master.feeAddress.call())).valueOf(), '100') // 100 - 5% of 100
-            assert.equal((await this.lp2.balanceOf(alice)).valueOf(), '0')
-
-            await this.master.deposit(1, '1000', constants.ZERO_ADDRESS, { from: bob })
-            await this.master.deposit(1, '1000', constants.ZERO_ADDRESS, { from: carol })
-            await this.master.deposit(1, '1000', constants.ZERO_ADDRESS, { from: dev })
-            await this.master.deposit(1, '1000', constants.ZERO_ADDRESS, { from: eliah })
-
-            assert.equal((await this.lp2.balanceOf(this.master.address)).toString(), '4500') // 900* 5 
-            assert.equal((await this.lp2.balanceOf(await this.master.feeAddress.call())).valueOf(), '500') // 100 * 5
-            assert.equal((await this.lp2.balanceOf(bob)).valueOf(), '0')
-            assert.equal((await this.lp2.balanceOf(carol)).valueOf(), '0')
-            assert.equal((await this.lp2.balanceOf(dev)).valueOf(), '0')
-            assert.equal((await this.lp2.balanceOf(eliah)).valueOf(), '0')
-
-            await this.master.withdraw(1, (await this.master.userInfo(1, alice)).amount.valueOf(), { from: alice })
-            assert.equal((await this.lp2.balanceOf(this.master.address)).toString(), '3600') // 900* 5 
-
-            await this.master.withdraw(1, (await this.master.userInfo(1, bob)).amount.valueOf(), { from: bob })
-            await this.master.withdraw(1, (await this.master.userInfo(1, carol)).amount.valueOf(), { from: carol })
-            await this.master.withdraw(1, (await this.master.userInfo(1, dev)).amount.valueOf(), { from: dev })
-            await this.master.withdraw(1, (await this.master.userInfo(1, eliah)).amount.valueOf(), { from: eliah })
-
-            assert.equal((await this.lp2.balanceOf(await this.master.feeAddress.call())).valueOf(), '500') //10% of 1000 for 5 users
-            assert.equal((await this.lp2.balanceOf(this.master.address)).toString(), '0')
-
-            assert.notEqual((await this.YnetToken.balanceOf(alice)).valueOf(), '0')
-            assert.notEqual((await this.YnetToken.balanceOf(bob)).valueOf(), '0')
-            assert.notEqual((await this.YnetToken.balanceOf(carol)).valueOf(), '0')
-            assert.notEqual((await this.YnetToken.balanceOf(dev)).valueOf(), '0')
-            assert.notEqual((await this.YnetToken.balanceOf(eliah)).valueOf(), '0')
-            assert.notEqual((await this.YnetToken.balanceOf(this.master.address)).valueOf(), '0')
+        it('should correct deposit', async () => {
+           this.master = await YnetMasterChef.new(this.YnetToken.address, 150, { from: owner })
+           await this.YnetToken.transferOwnership(this.master.address, { from: owner })
 
 
-            await this.master.withdraw(0, (await this.master.userInfo(0, alice)).amount.valueOf(), { from: alice })
-            assert.equal((await this.lp1.balanceOf(this.master.address)).toString(), '3800') // 950* 5 - 950 
+            await this.master.add('200', this.lp.address,200, true)
+            await this.master.add('200', this.lp2.address,0, true)
+            await this.lp.approve(this.master.address, '1000', { from: bob })
+            await this.lp2.approve(this.master.address, '1000', { from: carol })  
+        
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: bob })
+            assert.equal((await this.lp.balanceOf(bob)).valueOf(), '900')
+            assert.equal((await this.lp.balanceOf(this.master.address)).valueOf(), '98')
 
-            await this.master.withdraw(0, (await this.master.userInfo(0, bob)).amount.valueOf(), { from: bob })
-            await this.master.withdraw(0, (await this.master.userInfo(0, carol)).amount.valueOf(), { from: carol })
-            await this.master.withdraw(0, (await this.master.userInfo(0, dev)).amount.valueOf(), { from: dev })
-            await this.master.withdraw(0, (await this.master.userInfo(0, eliah)).amount.valueOf(), { from: eliah })
+            await time.advanceBlockTo(160);
+            assert.equal((await this.master.pendingYnet(0, bob)).valueOf(), "49")
+            assert.equal((await this.master.userInfo(0, bob)).rewardDebt.valueOf(), "0")
+            assert.equal((await this.master.poolInfo(0)).accYnetPerShare.valueOf(), "0")
 
-            assert.equal((await this.lp1.balanceOf(await this.master.feeAddress.call())).valueOf(), '250') //5% of 1000 for 5 users
-            assert.equal((await this.lp1.balanceOf(this.master.address)).toString(), '0')
-
-            assert.notEqual((await this.YnetToken.balanceOf(alice)).valueOf(), '0')
-            assert.notEqual((await this.YnetToken.balanceOf(bob)).valueOf(), '0')
-            assert.notEqual((await this.YnetToken.balanceOf(carol)).valueOf(), '0')
-            assert.notEqual((await this.YnetToken.balanceOf(dev)).valueOf(), '0')
-            assert.notEqual((await this.YnetToken.balanceOf(eliah)).valueOf(), '0')
+            await this.master.deposit(1, 50,constants.ZERO_ADDRESS, { from: carol })
+            assert.equal((await this.lp2.balanceOf(carol)).valueOf(), '950')
+            assert.equal((await this.lp2.balanceOf(this.master.address)).valueOf(), '50')
 
         })
 
-        it('bad withdraw should fail ,trying to withdraw more then deposited', async () => {
-            this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: alice })
-            await this.master.add(100, this.lp1.address, 500, true, { from: alice })
+        it('should calculate correct pending YnetToken & balance', async () => {
+            // 10 per block farming rate starting at block 200
+            this.master = await YnetMasterChef.new(this.YnetToken.address, 200, { from: owner })
+            await this.YnetToken.transferOwnership(this.master.address, { from: owner })
 
-            await this.lp1.transfer(this.master.address, '5000', { from: minter })
+            await this.master.add('200', this.lp.address,200, true)
+            await this.master.add('200', this.lp2.address,400, true)
+            await this.lp.approve(this.master.address, '1000', { from: bob })
+            await this.lp.approve(this.master.address, '1000', { from: carol })
 
-            await this.lp1.approve(this.master.address, 1000, { from: alice })
+            await time.advanceBlockTo(199);
+        
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: bob })
+            assert.equal((await this.lp.balanceOf(bob)).valueOf(), '900')
+            assert.equal((await this.lp.balanceOf(this.master.address)).valueOf(), '98')
 
-            assert.equal((await this.lp1.allowance(alice, this.master.address)).valueOf(), '1000')
+            await time.advanceBlockTo(210);
+            assert.equal((await this.master.pendingYnet(0, bob)).valueOf(), '49')
+            await time.advanceBlockTo(220)
+            assert.equal((await this.master.pendingYnet(0, bob)).valueOf(), '99')
 
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
+            await time.advanceBlockTo(249)
+            await this.master.updatePool(0) //250
+            assert.equal((await this.YnetToken.totalSupply()).valueOf(), '275')
 
-            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: alice })
-            await this.master.deposit(0, '200', constants.ZERO_ADDRESS, { from: alice })
-            await this.master.deposit(0, '300', constants.ZERO_ADDRESS, { from: alice })
-            await this.master.deposit(0, '400', constants.ZERO_ADDRESS, { from: alice })
+            await time.advanceBlockTo(259)
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: bob }) //260
+            assert.equal((await this.master.pendingYnet(0, bob)).valueOf(), '0') // when deposit, it will automatic harvest
+            assert.equal((await this.YnetToken.balanceOf(bob)).valueOf(),'277')
+
+            assert.equal((await this.YnetToken.balanceOf(this.master.address)).valueOf(), "1")
+
+            await time.advanceBlockTo(270)
+            assert.equal((await this.master.pendingYnet(0, bob)).valueOf(), '50')
+
+            await time.advanceBlockTo(280)
+            assert.equal((await this.master.pendingYnet(0, bob)).valueOf(), '100')
+
+            await time.advanceBlockTo(299)
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: carol }) // 300
+            assert.equal((await this.master.pendingYnet(0, bob)).valueOf(), '200')
+            assert.equal((await this.master.pendingYnet(0, carol)).valueOf(), '0')
+            
+            await time.advanceBlockTo(310)
+            assert.equal((await this.master.pendingYnet(0, bob)).valueOf(), '234')
+            assert.equal((await this.master.pendingYnet(0, carol)).valueOf(), '17')
+
+            await time.advanceBlockTo(320)
+            assert.equal((await this.master.pendingYnet(0, bob)).valueOf(), '267')
+            assert.equal((await this.master.pendingYnet(0, carol)).valueOf(), '34') 
+        })
+
+        it('should not distribute YnetToken if no one deposit', async () => {
+            // 10 per block farming rate starting at block 400 
+            this.master = await YnetMasterChef.new(this.YnetToken.address, 400, { from: owner })
+            await this.YnetToken.transferOwnership(this.master.address, { from: owner })
+
+            await this.master.add('100', this.lp.address,200, true)
+            await this.master.add('100', this.lp2.address,400, true)
+
+            await this.lp.approve(this.master.address, '1000', { from: bob })
+            await time.advanceBlockTo('430')
+            assert.equal((await this.YnetToken.totalSupply()).valueOf(), '0')
+            await time.advanceBlockTo('440')
+            assert.equal((await this.YnetToken.totalSupply()).valueOf(), '0')
+            await time.advanceBlockTo('450')
+            await this.master.updatePool(0) 
+            assert.equal((await this.YnetToken.totalSupply()).valueOf(), '0')
+            assert.equal((await this.YnetToken.balanceOf(bob)).valueOf(), '0')
+            assert.equal((await this.YnetToken.balanceOf(dev)).valueOf(), '0')
+            await time.advanceBlockTo('459')
+            await this.master.deposit(0, '100',constants.ZERO_ADDRESS, { from: bob }) 
+            assert.equal((await this.lp.balanceOf(this.master.address)).valueOf(), '98')
+            assert.equal((await this.YnetToken.totalSupply()).valueOf(), '0')
+            assert.equal((await this.YnetToken.balanceOf(bob)).valueOf(), '0')
+            assert.equal((await this.YnetToken.balanceOf(dev)).valueOf(), '0')
+            assert.equal((await this.lp.balanceOf(bob)).valueOf(), '900')
+
+            await time.advanceBlockTo('479')
+            await this.master.withdraw(0,'50', { from: bob })
+            assert.equal(await this.YnetToken.balanceOf(bob).valueOf(),'92')
+        })
+
+        it('should properly distribute reward tokens', async () => {
+            
+           this.master = await YnetMasterChef.new(this.YnetToken.address, 600, { from: owner })
+           await this.YnetToken.transferOwnership(this.master.address, { from: owner })
+
+            await this.master.add('100', this.lp.address,200, true)
+            await this.lp.approve(this.master.address, '1000', { from: alice })
+            await this.lp.approve(this.master.address, '1000', { from: bob })
+            await this.lp.approve(this.master.address, '1000', { from: carol })
+            await this.lp.approve(this.master.address, '1000', { from: dev })
+
+            await this.master.add('100', this.lp2.address,400, true)
+            await this.lp2.approve(this.master.address, '1000', { from: eliah })
+
+            await time.advanceBlockTo('550')
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: alice }) 
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: bob })   
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: carol }) 
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: dev })   
+
+            await this.master.deposit(1, 100,constants.ZERO_ADDRESS, { from: eliah }) 
+
+          // ----- claiming anytime after sale start 
+            await time.advanceBlockTo('649')
+
+            await this.master.withdraw(0,98, { from: alice })           
+            assert.equal(await this.YnetToken.balanceOf(alice),'58');
+
+            await this.master.withdraw(0,98, { from: bob })             
+            assert.equal(await this.YnetToken.balanceOf(bob),'60');
+
+            await this.master.withdraw(0,98, { from: carol })           
+            assert.equal(await this.YnetToken.balanceOf(carol),'62');
+
+            await this.master.withdraw(0,98, { from: dev })             
+            assert.equal(await this.YnetToken.balanceOf(dev),'66');
+
+            await this.master.withdraw(1,96, { from: eliah })           
+            assert.equal(await this.YnetToken.balanceOf(eliah),'250');          
 
             await expectRevert(
-                this.master.deposit(0, '1', constants.ZERO_ADDRESS, { from: alice }),
-                'BEP20: transfer amount exceeds allowance')
+                this.master.withdraw(0,5, { from: bob }),
+                "withdraw: not good"
+            )
 
-            await this.master.withdraw(0, 500, { from: alice })
-            await this.master.withdraw(0, 400, { from: alice })
-            await this.master.withdraw(0, 50, { from: alice })
+        })
+
+        it('should properly distribute reward tokens at different deposit amounts', async () => {
+            this.master = await YnetMasterChef.new(this.YnetToken.address, 700, { from: owner })
+            await this.YnetToken.transferOwnership(this.master.address, { from: owner })
+ 
+             await this.master.add('100', this.lp.address,200, true)
+             await this.lp.approve(this.master.address, '1000', { from: alice })
+             await this.lp.approve(this.master.address, '1000', { from: bob })
+             await this.lp.approve(this.master.address, '1000', { from: carol })
+             await this.lp.approve(this.master.address, '1000', { from: dev })
+ 
+             await this.master.add('100', this.lp2.address,400, true)
+             await this.lp2.approve(this.master.address, '1000', { from: eliah })
+
+             // assert.equal(await time.latestBlock());
+             await time.advanceBlockTo('690')
+             await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: alice })  
+             await this.master.deposit(0, 200,constants.ZERO_ADDRESS, { from: bob })   
+             await this.master.deposit(0, 300,constants.ZERO_ADDRESS, { from: carol })
+             await this.master.deposit(0, 400,constants.ZERO_ADDRESS, { from: dev })   
+             await this.master.deposit(1, 100,constants.ZERO_ADDRESS, { from: eliah }) 
+ 
+
+             await time.advanceBlockTo('749')
+
+             await this.master.withdraw(0,98, { from: alice })            //750
+             assert.equal(await this.YnetToken.balanceOf(alice),'23');
+
+             await this.master.withdraw(0,196, { from: bob })              //751
+             assert.equal(await this.YnetToken.balanceOf(bob),'48');
+
+             await this.master.withdraw(0,294, { from: carol })            //752
+             assert.equal(await this.YnetToken.balanceOf(carol),'73');
+
+            await this.master.withdraw(0,392, { from: dev })              //753
+            assert.equal(await this.YnetToken.balanceOf(dev),'102');
+
+            await this.master.withdraw(1,96, { from: eliah })            //754
+            assert.equal(await this.YnetToken.balanceOf(eliah),'250');
+        })
+
+        it('should allow deposit and partial withdraw at any time', async () => {
+            this.master = await YnetMasterChef.new(this.YnetToken.address,1000, { from: owner })
+            await this.YnetToken.transferOwnership(this.master.address, { from: owner })
+ 
+             await this.master.add('100', this.lp.address,200, true)
+             await this.lp.approve(this.master.address, '1000', { from: alice })
+             await this.lp.approve(this.master.address, '1000', { from: bob })
+             await this.lp.approve(this.master.address, '1000', { from: carol })
+             await this.lp.approve(this.master.address, '1000', { from: dev })
+ 
+             await this.master.add('100', this.lp2.address,200, true)
+             await this.lp2.approve(this.master.address, '1000', { from: eliah })
+
+             // assert.equal(await time.latestBlock());
+             await time.advanceBlockTo('1150')
+             await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: alice })
+             await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: bob })    
+             await this.master.deposit(1, 100,constants.ZERO_ADDRESS, { from: eliah })  
+
+             await time.advanceBlockTo('1200')
+             await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: alice }) 
+
+             await time.advanceBlockTo('1250')
+             await this.master.withdraw(0,98, { from: alice })            
+             assert.equal(await this.YnetToken.balanceOf(alice),'273');
+
+             await this.master.withdraw(0,98, { from: bob })             
+             assert.equal(await this.YnetToken.balanceOf(bob),'194');
+             
+            await this.master.withdraw(1,98, { from: eliah })           
+            assert.equal(await this.YnetToken.balanceOf(eliah),'462');
+
+            await time.advanceBlockTo('1300')
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: carol }) 
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: dev })
+
+            await time.advanceBlockTo('1350')
+            await this.master.withdraw(0,98, { from: carol })            
+            assert.equal(await this.YnetToken.balanceOf(carol),'78');
+
+            await this.master.withdraw(0,98, { from: alice })  
+            assert.equal(await this.YnetToken.balanceOf(alice),'582');
+        })
+
+        
+        it('should allow original fee address to change feeAddress', async () => {
+            this.master = await YnetMasterChef.new(this.YnetToken.address, 1700, { from: owner })
+            await this.YnetToken.transferOwnership(this.master.address, { from: owner })
+            
+            await expectRevert(
+                this.master.setFeeAddress(dev, { from: alice }),
+                "setFeeAddress: FORBIDDEN"    
+            )
+            await expectRevert(
+                this.master.setFeeAddress(constants.ZERO_ADDRESS, { from: owner }),
+                "setFeeAddress: cannot set fee adddres to zero address"    
+            )
+            await this.master.setFeeAddress(eliah, { from: owner })
+            assert.equal(await this.lp.balanceOf(eliah),'1000');
+
+            await this.master.add('100', this.lp.address,200, true)
+            await this.lp.approve(this.master.address, '1000', { from: alice })
+            await this.lp.approve(this.master.address, '1000', { from: bob })
+
+            await this.master.add('100', this.lp2.address,400, true)
+
+            await time.advanceBlockTo('1699')
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: alice }) 
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: bob })
+            await time.advanceBlockTo('1749')
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: alice })
+
+            await time.advanceBlockTo('1799')
+            await this.master.withdraw(0,196, { from: alice })
+            await this.master.withdraw(0,98, { from: bob })
+
+            assert.equal(await this.YnetToken.balanceOf(alice),'273'); 
+            assert.equal(await this.YnetToken.balanceOf(bob),'196'); 
+            
+            assert.equal(await this.lp.balanceOf(eliah),'1006');
+        }) 
+
+        it('should allow original dev address to change devAddress', async () => {
+            this.master = await YnetMasterChef.new(this.YnetToken.address, 1900, { from: owner })
+            await this.YnetToken.transferOwnership(this.master.address, { from: owner })
+            
+            await expectRevert(
+                this.master.setDevAddress(dev, { from: alice }),
+                "setDevAddress: FORBIDDEN"    
+            )
+            await expectRevert(
+                this.master.setDevAddress(constants.ZERO_ADDRESS, { from: owner }),
+                "setDevAddress: cannot set dev adddres to zero address"    
+            )
+            await this.master.setDevAddress(dev, { from: owner })
+
+            await this.master.add('100', this.lp.address,200, true)
+            await this.lp.approve(this.master.address, '1000', { from: alice })
+            await this.lp.approve(this.master.address, '1000', { from: bob })
+
+            await this.master.add('100', this.lp2.address,400, true)
+
+            await time.advanceBlockTo('1899')
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: alice }) 
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: bob })
+            await time.advanceBlockTo('1949')
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: alice })
+
+            await time.advanceBlockTo('1999')
+            await this.master.withdraw(0,196, { from: alice })
+            await this.master.withdraw(0,98, { from: bob })
+
+            assert.equal(await this.YnetToken.balanceOf(alice),'273'); 
+            assert.equal(await this.YnetToken.balanceOf(bob),'196'); 
+            assert.equal(await this.YnetToken.balanceOf(dev),'49');
+        })         
+
+        it('should properly update emmision rate', async () => {
+            this.master = await YnetMasterChef.new(this.YnetToken.address, 2000, { from: owner })
+            await this.YnetToken.transferOwnership(this.master.address, { from: owner })
+
+            await this.master.add('100', this.lp.address,200, true)
+            await this.master.add('100', this.lp2.address,200, true)
+
+            await this.lp.approve(this.master.address, '1000', { from: alice })
+            await this.lp.approve(this.master.address, '1000', { from: bob })
+
+            await time.advanceBlockTo('2050')
+
+            await this.master.updateEmissionRate({ from: owner })
+            assert.equal(await this.master.ynetPerBlock(),10);
+
+            await time.advanceBlockTo('2100')
+
+            await this.master.updateEmissionRate({ from: owner })
+            assert.equal(await this.master.ynetPerBlock(),5);
+
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: alice }) 
+
+            await this.master.deposit(0, 100,constants.ZERO_ADDRESS, { from: bob })   
+
+
+            await time.advanceBlockTo('2200')
+
+            await this.master.updateEmissionRate({ from: owner })
+            assert.equal(await this.master.ynetPerBlock(),2);
+
+
+            await this.master.withdraw(0,98, { from: alice })            
+            assert.equal(await this.YnetToken.balanceOf(alice),'115');
+
+            await time.advanceBlockTo('2300')
+
+            await this.master.updateEmissionRate({ from: owner })
+            assert.equal(await this.master.ynetPerBlock(),1);
+
+            await this.master.withdraw(0,98, { from: bob })             
+            assert.equal(await this.YnetToken.balanceOf(bob),'206');
+
+            await time.advanceBlockTo('2400')
 
             await expectRevert(
-                this.master.withdraw(0, 100, { from: alice }),
-                'withdraw: not good')
+                this.master.updateEmissionRate({ from: owner }),
+                "updateEmissionRate: Emission rate has reached the minimum threshold"
+            );
 
-        })
-
-        it('should not distribute rewards during harvest lockup', async () => {
-            let currBlockCount = (await time.latestBlock()).toNumber();
-
-            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-
-            await this.master.add('100', this.lp1.address, 1000, true)
-            await this.lp1.approve(this.master.address, '1000', { from: bob })
-
-            await time.advanceBlockTo(currBlockCount + 100);
-
-            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: bob })
-            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '900')
-
-            await time.advanceBlockTo(currBlockCount + 400);     // harvest period 300 blocks 
-            
-            await this.master.withdraw(0, 90, { from: bob })
-            
-            assert.equal((await this.YnetToken.balanceOf(bob)).toString(), '0')  // bob's reward
-            assert.equal((await this.lp1.balanceOf(bob)).toString(), '990')
-        })
-
-        it('should distribute rewards during harvest period', async () => {
-            let currBlockCount = (await time.latestBlock()).toNumber();
-
-            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-
-            await this.master.add('100', this.lp1.address, 1000, true)
-            await this.lp1.approve(this.master.address, '1000', { from: bob })
-            await this.lp1.approve(this.master.address, '1000', { from: carol })
-
-            await time.advanceBlockTo(currBlockCount + 100);
-
-            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: bob })  // 115
-            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '900')
-
-            await time.advanceBlockTo(currBlockCount + 200);
-
-            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: carol })   // 215
-            assert.equal((await this.lp1.balanceOf(carol)).valueOf(), '900')
-
-            await time.advanceBlockTo(currBlockCount + 400);     // harvest period 300 blocks 
-            
-            await this.master.updateStartBlockHarvest(currBlockCount + 500, { from : alice });
-
-            await time.advanceBlockTo(currBlockCount + 500);
-
-            await this.master.withdraw(0, 90, { from: bob })                    // 515
-
-            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, '231.25')  // bob's reward (250)
-            assert.equal((await this.lp1.balanceOf(bob)).toString(), '990')
-
-            await this.master.withdraw(0, 90, { from: carol }) 
-            assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, '139.675')  // carol's reward (151)
-            assert.equal((await this.lp1.balanceOf(carol)).toString(), '990')
-        })
-
-        it('withdraw different amounts early and collect rewards during harvest period', async () => {
-            let currBlockCount = (await time.latestBlock()).toNumber();
-
-            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-
-            await this.master.add('100', this.lp1.address, 1000, true)
-            await this.lp1.approve(this.master.address, '1000', { from: bob })
-            await this.lp1.approve(this.master.address, '1000', { from: carol })
-
-            await time.advanceBlockTo(currBlockCount + 100);
-
-            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: bob })  // 115
-            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '900')
-
-            await time.advanceBlockTo(currBlockCount + 150);
-
-            await this.master.withdraw(0, 45, { from: bob })   // 165
-            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, '46.25')
-            assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '945')
-
-            await time.advanceBlockTo(currBlockCount + 200);
-
-            await this.master.deposit(0, '100', constants.ZERO_ADDRESS, { from: carol })   // 215
-            assert.equal((await this.lp1.balanceOf(carol)).valueOf(), '900')
-
-            await time.advanceBlockTo(currBlockCount + 500);
-
-            await this.master.withdraw(0, 45, { from: bob })                    // 515
-            await this.master.withdraw(0, 90, { from: carol })                  // 516
-
-            await this.master.updateStartBlockHarvest(currBlockCount + 600, { from : alice });
-
-            await time.advanceBlockTo(currBlockCount + 600);
-
-            await this.master.deposit(0, '0', constants.ZERO_ADDRESS, { from: bob })
-            assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, 185) // bob's reward (200)
-
-            await this.master.deposit(0, '0', constants.ZERO_ADDRESS, { from: carol })
-            assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, 185.925) // bob's reward (200)
-
-        })
-
-        it('check if rewards are generated before start block', async () => {
-            let currBlockCount = (await time.latestBlock()).toNumber();
-
-            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount +  600, { from: alice })
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-            await this.master.setDevAddress(devAddress, { from: alice })
-
-            await this.master.add(100, this.lp1.address, 0, true)
-            await this.lp1.approve(this.master.address, '1000', { from: bob })
-            await this.lp1.approve(this.master.address, '1000', { from: carol })
-
-            await time.advanceBlockTo(currBlockCount + 499)
-            await this.master.deposit(0, 1000, constants.ZERO_ADDRESS, { from: bob }) //600
-
-            await time.advanceBlockTo(currBlockCount + 599)
-            await this.master.withdraw(0, 1000, { from: bob }) //700
-
-            assert.equal((await this.YnetToken.balanceOf(bob)).toString(), 0)
-
-        })
-
-        it('should check devAddress percentage', async () => {
-            let currBlockCount = (await time.latestBlock()).toNumber();
-
-            this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 600, { from: alice })
-            await this.YnetToken.transferOwnership(this.master.address, { from: alice })
-            await this.master.setDevAddress(devAddress, { from: alice })
-
-            await this.master.add(100, this.lp1.address, 0, true)
-            await this.lp1.approve(this.master.address, '1000', { from: bob })
-            await this.lp1.approve(this.master.address, '1000', { from: carol })
-
-            await time.advanceBlockTo(currBlockCount + 599)
-            await this.master.deposit(0, 1000, constants.ZERO_ADDRESS, { from: bob }) //600
-
-            await time.advanceBlockTo(currBlockCount + 649)
-            await this.master.deposit(0, 1000, constants.ZERO_ADDRESS, { from: carol }) //600
-
-            await time.advanceBlockTo(currBlockCount + 699)
-            await this.master.withdraw(0, 1000, { from: bob }) //650
-
-            await time.advanceBlockTo(currBlockCount + 749)
-            await this.master.withdraw(0, 1000, { from: carol }) //650
-
-            // 15 * 100 / 165
-            assert.equal((await this.YnetToken.balanceOf(devAddress)).toString() * 100 /
-                (await this.YnetToken.totalSupply()).toString(), 9.090909090909092)
-
-
-        })
+        }) 
     })
 })

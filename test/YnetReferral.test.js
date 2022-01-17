@@ -8,10 +8,11 @@ const MockBEP20 = artifacts.require('MockBEP20')
 contract('YNetReferral', ([alice, bob, carol, referrer, operator, owner, minter, dev, feeAddress, devAddress]) => {
     beforeEach(async () => {
         this.YNetReferral = await YNetReferral.new({ from: owner });
-        this.YnetToken = await YnetToken.new({ from: alice })
-        this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: alice })
-        this.lp2 = await MockBEP20.new('Token2', 'TK2', '10000000000', { from: minter })
+        this.YnetToken = await YnetToken.new({ from: owner })
+        this.master = await YnetMasterChef.new(this.YnetToken.address, 100, { from: owner })
         this.lp1 = await MockBEP20.new('Token1', 'TK1', '10000000000', { from: minter })
+        this.lp2 = await MockBEP20.new('Token2', 'TK2', '10000000000', { from: minter })
+
         await this.lp1.transfer(alice, '1000', { from: minter })
         await this.lp1.transfer(bob, '1000', { from: minter })
         await this.lp2.transfer(alice, '1000', { from: minter })
@@ -20,18 +21,28 @@ contract('YNetReferral', ([alice, bob, carol, referrer, operator, owner, minter,
 
     it('should allow operator and only owner to update operator', async () => {
         assert.equal((await this.YNetReferral.operators(operator)).valueOf(), false);
-        await expectRevert(this.YNetReferral.recordReferral(alice, referrer, { from: operator }), 'Operator: caller is not the operator');
+        await expectRevert(
+            this.YNetReferral.recordReferral(alice, referrer, { from: operator }), 
+            'Operator: caller is not the operator'
+        );
 
-        await expectRevert(this.YNetReferral.updateOperator(operator, true, { from: carol }), 'Ownable: caller is not the owner');
+        await expectRevert(
+            this.YNetReferral.updateOperator(operator, true, { from: carol }),
+             'Ownable: caller is not the owner'
+        );
+
         await this.YNetReferral.updateOperator(operator, true, { from: owner });
         assert.equal((await this.YNetReferral.operators(operator)).valueOf(), true);
 
         await this.YNetReferral.updateOperator(operator, false, { from: owner });
         assert.equal((await this.YNetReferral.operators(operator)).valueOf(), false);
-        await expectRevert(this.YNetReferral.recordReferral(alice, referrer, { from: operator }), 'Operator: caller is not the operator');
+        await expectRevert(
+            this.YNetReferral.recordReferral(alice, referrer, { from: operator }),
+             'Operator: caller is not the operator'
+        );
     });
 
-    it('record referral', async () => {
+    it('should record referral properly', async () => {
         assert.equal((await this.YNetReferral.operators(operator)).valueOf(), false);
         await this.YNetReferral.updateOperator(operator, true, { from: owner });
         assert.equal((await this.YNetReferral.operators(operator)).valueOf(), true);
@@ -57,32 +68,29 @@ contract('YNetReferral', ([alice, bob, carol, referrer, operator, owner, minter,
         assert.equal((await this.YNetReferral.referralsCount(referrer)).valueOf(), '2');
     });
     
-    it('multiple referrers should not be added for a user', async () => {
-        await this.YnetToken.transferOwnership(this.master.address, { from: alice }) 
+    it('should not allow multiple referrers for a user', async () => {
+        await this.YnetToken.transferOwnership(this.master.address, { from: owner }) 
 
-        await this.master.add('100', this.lp1.address,1000, true)
+        await this.master.add('100', this.lp1.address,200, true, { from: owner })
         await this.lp1.approve(this.master.address, '1000', { from: alice })
         await this.lp1.approve(this.master.address, '1000', { from: bob })
 
-        await this.master.add('100', this.lp2.address,500, true)
+        await this.master.add('100', this.lp2.address,200, true, { from: owner })
 
         await expectRevert(
              this.master.setYnetReferral(this.YNetReferral.address,{from :bob }),
-            "Ownable: caller is not the owner")
+            "Ownable: caller is not the owner"
+        )
 
-        await this.master.setYnetReferral(this.YNetReferral.address,{from :alice })
+        await this.master.setYnetReferral(this.YNetReferral.address,{from :owner })
         
         //MasterChef must be added as operator for adding the referal information.
         await this.YNetReferral.updateOperator(this.master.address, true, { from: owner });
 
         await this.master.deposit(0, 10,carol, { from: alice }) 
-        
-        await this.master.deposit(0, 10,constants.ZERO_ADDRESS, { from: bob }) 
-
+        await this.master.deposit(0, 10,constants.ZERO_ADDRESS, { from: bob })
         await this.master.deposit(0, 10,dev, { from: alice })
-
         await this.master.deposit(0, 1,minter, { from: bob }) 
-
         await this.master.deposit(0, 1,dev, { from: bob })  
 
         await this.master.withdraw(0,18, { from: alice }) 
@@ -92,99 +100,78 @@ contract('YNetReferral', ([alice, bob, carol, referrer, operator, owner, minter,
     
     })
 
-    it('Referal Reward Calculation', async () => {
+    it('should calculate referral reward properly', async () => {
 
-        await this.YnetToken.transferOwnership(this.master.address, { from: alice })
+        await this.YnetToken.transferOwnership(this.master.address, { from: owner })
         
-        await this.master.add('100', this.lp1.address, 1000, true)
+        await this.master.add('100', this.lp1.address, 200, true, { from: owner })
         await this.lp1.approve(this.master.address, '1000', { from: alice })
         await this.lp1.approve(this.master.address, '1000', { from: bob })
         
-        await this.master.add('100', this.lp2.address, 500, true)
+        await this.master.add('100', this.lp2.address, 400, true, { from: owner })
+
         await expectRevert(
             this.master.setYnetReferral(this.YNetReferral.address, { from: bob }),
-            "Ownable: caller is not the owner")
-        await this.master.setYnetReferral(this.YNetReferral.address, { from: alice })
+            "Ownable: caller is not the owner"
+        )
+
+        await this.master.setYnetReferral(this.YNetReferral.address, { from: owner })
         //MasterChef must be added as operator for adding the referal information.
         await this.YNetReferral.updateOperator(this.master.address, true, { from: owner });
-        await this.master.setFeeAddress(feeAddress, { from: alice })
-        await this.master.setDevAddress(devAddress, { from: alice })
+        await this.master.setFeeAddress(feeAddress, { from: owner })
+        await this.master.setDevAddress(devAddress, { from: owner })
+
         await time.advanceBlockTo('99')
 
-        await this.master.deposit(0, 100, carol, { from: alice })       // 800
-        await this.master.deposit(0, 100, dev, { from: bob })         // 801
+        await this.master.deposit(0, 100, carol, { from: alice })       // 100
+        await this.master.deposit(0, 100, dev, { from: bob })           // 101
 
         await time.advanceBlockTo('150')
 
         await this.master.deposit(0, 100, dev, { from: alice })    // 151, No change will be made in referrer
-        // Rewards generated at 151 is 13 ynet, 2% of 13 = 0.26 ynet
 
-        console.log("Reward of alice after 2nd deposit: ", (await this.YnetToken.balanceOf(alice)).toString() / 1000000000000000000)
-        console.log("Referral Reward of carol after 2nd deposit: ", (await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000)
-        console.log("Referral Reward of dev after 2nd deposit: ", (await this.YnetToken.balanceOf(dev)).toString() / 1000000000000000000)
+        assert.equal((await this.YnetToken.balanceOf(alice)).valueOf(),120)
+        assert.equal((await this.YnetToken.balanceOf(carol)).valueOf(),2)
+        assert.equal((await this.YnetToken.balanceOf(dev)).valueOf(),0)
 
         await time.advanceBlockTo('200')
-        await this.master.withdraw(0, 90, { from: alice }) // 201
-        // pending Rewards of alice at 201 is 50/3 ynet, 2% of 50/3 = 1/3.
-        // 1/3 + 0.26 = 0.59333333333333 referral commission of carol.
- 
-        console.log("Referral Reward of carol after withdraw by alice: ", (await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000)
-        console.log("Referral Reward of dev after withdraw by alice: ", (await this.YnetToken.balanceOf(dev)).toString() / 1000000000000000000)
+        await this.master.withdraw(0, 98, { from: alice }) // 201
 
-        
-        await this.master.withdraw(0, 90, { from: bob }) // 202
-        // pending rewards of bob at 202 is 253/12 ynet, 2% of 253/12 = 0.421666666.
-        
+        assert.equal((await this.YnetToken.balanceOf(alice)).valueOf(),275)
+        assert.equal((await this.YnetToken.balanceOf(carol)).valueOf(),5)
+        assert.equal((await this.YnetToken.balanceOf(dev)).valueOf(),0)
 
-        console.log("Referral Reward of dev after withdraw by bob: ", (await this.YnetToken.balanceOf(dev)).toString() / 1000000000000000000)
+        await expectRevert(
+            this.master.setReferralCommissionRate(2500,{from:owner}),
+            "setReferralCommissionRate: invalid referral commission rate basis points"
+        )
         
-        assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, 0.89)
-        assert.equal((await this.YnetToken.balanceOf(dev)).toString() / 1000000000000000000, 0.6325)
+        await this.master.setReferralCommissionRate(400,{from:owner}),
+
+
+        await this.master.withdraw(0, 98, { from: bob }) // 202
+
+        assert.equal((await this.YnetToken.balanceOf(dev)).valueOf(),8)
+        
+        assert.equal((await this.YnetToken.balanceOf(alice)).valueOf(),275)
+        assert.equal((await this.YnetToken.balanceOf(bob)).valueOf(),200)
+        assert.equal((await this.YnetToken.balanceOf(carol)).valueOf() , 5)
+        assert.equal((await this.YnetToken.balanceOf(dev)).valueOf() , 8)
         
     })
 
-    it('should check referral reward percentage', async () => {
-        let currBlockCount = (await time.latestBlock()).toNumber();
+    it('should allow drain of any tokens sent to contract', async () => {
+        await this.YNetReferral.updateOperator(operator, true, { from: owner });
+        assert.equal((await this.YNetReferral.operators(operator)).valueOf(), true);
 
-        this.master = await YnetMasterChef.new(this.YnetToken.address, currBlockCount + 100, { from: alice })
-        await this.YnetToken.transferOwnership(this.master.address, { from: alice })
+        await this.lp1.transfer(this.YNetReferral.address, '1000', { from: alice })
 
-        await this.master.setYnetReferral(this.YNetReferral.address, { from: alice })
-        //MasterChef must be added as operator for adding the referal information.
-        await this.YNetReferral.updateOperator(this.master.address, true, { from: owner });
-        await this.master.setFeeAddress(feeAddress, { from: alice })
-        await this.master.setDevAddress(devAddress, { from: alice })
+        assert.equal(await this.lp1.balanceOf(alice),0)
 
-        await this.master.add('100', this.lp1.address, 1000, true)
-        await this.lp1.approve(this.master.address, '1000', { from: alice })
-        await this.lp1.approve(this.master.address, '1000', { from: bob })
+        await this.YNetReferral.drainBEP20Token(this.lp1.address,1000,alice,{from:owner})
 
-        await time.advanceBlockTo(currBlockCount + 100);
+        assert.equal(await this.lp1.balanceOf(alice),1000)
 
-        await this.master.deposit(0, '100', carol, { from: alice })  // 115
-        assert.equal((await this.lp1.balanceOf(alice)).valueOf(), '900')
-
-        await time.advanceBlockTo(currBlockCount + 200);
-
-        await this.master.deposit(0, '100', dev, { from: bob })   // 215
-        assert.equal((await this.lp1.balanceOf(bob)).valueOf(), '900')
-
-        await time.advanceBlockTo(currBlockCount + 400);     // harvest period 300 blocks 
-        
-        await this.master.updateStartBlockHarvest(currBlockCount + 500, { from : alice });
-
-        await time.advanceBlockTo(currBlockCount + 500);
-
-        await this.master.withdraw(0, 90, { from: alice })                    // 515
-
-        assert.equal((await this.YnetToken.balanceOf(alice)).toString() / 1000000000000000000, '231.25')  // bob's reward
-        assert.equal((await this.lp1.balanceOf(alice)).toString(), '990')
-
-        await this.master.withdraw(0, 90, { from: bob }) 
-        assert.equal((await this.YnetToken.balanceOf(bob)).toString() / 1000000000000000000, '139.675')  // bob's reward
-        assert.equal((await this.lp1.balanceOf(bob)).toString(), '990')
-
-        assert.equal((await this.YnetToken.balanceOf(carol)).toString() / 1000000000000000000, 7.5)
-        assert.equal((await this.YnetToken.balanceOf(dev)).toString() / 1000000000000000000, 4.53)
     })
+
 });

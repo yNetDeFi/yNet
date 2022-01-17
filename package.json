@@ -14,7 +14,7 @@
   "license": "ISC",
   "devDependencies": {
     "@openzeppelin/test-helpers": "^0.5.11",
-    "solidity-coverage": "^0.7.16",
+    "solidity-coverage": "^0.7.17",
     "truffle": "^5.1.58"
   }
 }
